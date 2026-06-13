@@ -927,7 +927,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   <div class="sel-sheet">
     <!-- Google status -->
     <div class="g-status" id="g-status">
-      <span id="g-status-text" style="color:var(--text-muted);font-size:13px">Not signed in to Microsoft</span>
+      <span id="g-status-text" style="color:var(--text-muted);font-size:13px;flex:1">Not signed in to Microsoft</span>
     </div>
     <div id="step-signin">
       <!-- Setup notice — shown when no App ID is configured -->
@@ -2025,7 +2025,7 @@ function initMsal(){
   if(!MS_APP_ID||MS_APP_ID==='YOUR-AZURE-APP-ID-HERE')return;
   msalApp=new msal.PublicClientApplication({
     auth:{clientId:MS_APP_ID,authority:'https://login.microsoftonline.com/consumers',redirectUri:location.origin+location.pathname},
-    cache:{cacheLocation:'sessionStorage'}
+    cache:{cacheLocation:'localStorage'}
   });
   msalApp.initialize().then(()=>{
     msalApp.handleRedirectPromise().then(r=>{
@@ -2059,7 +2059,10 @@ async function showUserAndDiaries(){
     const r=await fetch('https://graph.microsoft.com/v1.0/me',{headers:{Authorization:'Bearer '+accessToken}});
     userProfile=await r.json();
     const pic=(userProfile.displayName||'?')[0].toUpperCase();
-    document.getElementById('g-status').innerHTML=
+    // Update g-status but keep g-status-text span in DOM (needed by saveAppId / window.onload)
+    const gStatus=document.getElementById('g-status');
+    gStatus.innerHTML=
+      '<span id="g-status-text" style="display:none"></span>'+
       '<div style="width:34px;height:34px;border-radius:50%;background:#0078d4;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">'+escH(pic)+'</div>'+
       '<div><div class="g-name">'+escH(userProfile.displayName)+'</div><div class="g-email">'+escH(userProfile.mail||userProfile.userPrincipalName)+'</div></div>'+
       '<span class="g-badge">✓</span>';
@@ -4182,7 +4185,8 @@ function saveAppId(){
   // Hide the setup notice now that App ID is configured
   const notice=document.getElementById('setup-notice');
   if(notice)notice.style.display='none';
-  document.getElementById('g-status-text').textContent='Connecting…';
+  const stEl=document.getElementById('g-status-text');
+  if(stEl)stEl.textContent='Connecting…';
   closeModal('modal-setup');
   toast('✅ App ID saved — connecting…');
   initMsal();
@@ -4200,7 +4204,7 @@ window.onload=()=>{
     // No App ID yet — show the yellow setup notice, update status text
     const notice=document.getElementById('setup-notice');
     if(notice)notice.style.display='block';
-    document.getElementById('g-status-text').textContent='⚙️ App ID not set — tap Setup below';
+    const stEl2=document.getElementById('g-status-text');if(stEl2)stEl2.textContent='⚙️ App ID not set — tap Setup below';
   } else {
     initMsal();
   }
