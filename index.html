@@ -40,6 +40,29 @@
   --safe-top: env(safe-area-inset-top, 0px);
 }
 
+html[data-theme="dark"] {
+  --bg: #12141c;
+  --surface: #1b1e29;
+  --surface2: #20232f;
+  --surface3: #262a38;
+  --primary: #5b8def;
+  --primary-mid: #4a7bd9;
+  --primary-light: #223354;
+  --primary-glow: rgba(91,141,239,0.18);
+  --accent: #26a69a;
+  --accent-light: #16332f;
+  --danger: #ef5350;
+  --danger-light: #3a1f22;
+  --warning: #ffa726;
+  --gold: #ffca28;
+  --text: #e8eaf2;
+  --text-mid: #b7bcd4;
+  --text-muted: #838aa8;
+  --border: #2e3242;
+}
+html[data-theme="dark"] .attach-pdf-ico,
+html[data-theme="dark"] img { filter: none; }
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
 html, body {
@@ -48,6 +71,7 @@ html, body {
   background: var(--bg);
   color: var(--text);
   overscroll-behavior: none;
+
   -webkit-font-smoothing: antialiased;
 }
 
@@ -925,6 +949,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 </style>
 </head>
 <body>
+<script>(function(){try{var t=localStorage.getItem('sd_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
 
 <!-- ══════════════════════════════════════════
      SELECTOR SCREEN
@@ -996,6 +1021,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       </div>
       <div class="drawer-section">
         <div class="drawer-section-label">Navigate</div>
+        <div class="drawer-item" id="di-dashboard" onclick="navTo('dashboard')"><span class="drawer-item-icon">🏠</span>Dashboard</div>
         <div class="drawer-item active" id="di-diary" onclick="navTo('diary')"><span class="drawer-item-icon">📓</span>Diary</div>
         <div class="drawer-item" id="di-tasks" onclick="navTo('tasks')"><span class="drawer-item-icon">✅</span>Tasks</div>
         <div class="drawer-item" id="di-lists" onclick="navTo('lists')"><span class="drawer-item-icon">📋</span>Checklists</div>
@@ -1034,6 +1060,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       </div>
       <div class="header-actions">
         <span class="sync-badge" id="sync-badge">Saved</span>
+        <button class="hdr-btn" onclick="toggleDarkMode()" id="dark-toggle-btn" title="Toggle dark mode">🌙</button>
         <button class="hdr-btn" onclick="saveToDrive()" title="Save to Drive">☁</button>
         <button class="hdr-btn" onclick="openMoreMenu()" title="More">⋯</button>
       </div>
@@ -1042,8 +1069,60 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <!-- PANELS -->
     <div id="content-area" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
 
+      <!-- DASHBOARD -->
+      <div class="panel" id="panel-dashboard">
+        <div id="dash-backup-nudge" style="display:none;background:linear-gradient(135deg,#fff3e0,#ffe0b2);border:1.5px solid #ff9800;border-radius:var(--radius-lg);padding:11px 14px;font-size:12.5px;font-weight:600;color:#e65100;display:flex;align-items:center;gap:8px">
+          <span style="font-size:16px">☁️</span><span id="dash-backup-nudge-text" style="flex:1"></span>
+          <button onclick="saveToDrive()" style="background:#e65100;color:#fff;border:none;border-radius:var(--radius-sm);padding:5px 10px;font-size:11.5px;font-weight:700;cursor:pointer">Sync now</button>
+        </div>
+        <div class="card" style="background:linear-gradient(135deg,var(--primary),var(--primary-mid));color:#fff">
+          <div style="font-family:'Fraunces',serif;font-size:19px;font-weight:700" id="dash-greeting">Hello</div>
+          <div style="font-size:12.5px;opacity:0.85;margin-top:2px" id="dash-date"></div>
+        </div>
+        <div class="stats-row" id="dash-stats"></div>
+
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-weight:700;font-size:14px">📌 Today's Tasks</div>
+            <button onclick="navTo('tasks')" style="background:none;border:none;color:var(--primary);font-weight:700;font-size:12px;cursor:pointer">View all →</button>
+          </div>
+          <div id="dash-tasks-list" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-weight:700;font-size:14px">🎂 Upcoming Birthdays</div>
+            <button onclick="navTo('contacts')" style="background:none;border:none;color:var(--primary);font-weight:700;font-size:12px;cursor:pointer">View all →</button>
+          </div>
+          <div id="dash-birthdays-list" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-weight:700;font-size:14px">💰 This Month's Spend</div>
+            <button onclick="navTo('expenses')" style="background:none;border:none;color:var(--primary);font-weight:700;font-size:12px;cursor:pointer">View all →</button>
+          </div>
+          <div id="dash-spend-summary"></div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-weight:700;font-size:14px">📓 Recent Diary Entry</div>
+            <button onclick="navTo('diary')" style="background:none;border:none;color:var(--primary);font-weight:700;font-size:12px;cursor:pointer">Write →</button>
+          </div>
+          <div id="dash-recent-entry" style="font-size:13px;color:var(--text-mid);line-height:1.6"></div>
+        </div>
+
+        <div class="card" id="dash-tags-card" style="display:none">
+          <div style="font-weight:700;font-size:14px;margin-bottom:10px">🏷️ Tags</div>
+          <div id="dash-tags-cloud" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+
+        <button class="btn btn-secondary" onclick="sendReminderEmail()" style="margin-top:2px">✉️ Email me today's reminders</button>
+      </div>
+
       <!-- DIARY -->
-      <div class="panel active" id="panel-diary">
+      <div class="panel" id="panel-diary">
         <!-- TODAY'S REMINDER BANNER -->
         <div id="reminder-banner" style="display:none;background:linear-gradient(135deg,#fff3e0,#ffe0b2);border:1.5px solid #ff9800;border-radius:var(--radius-lg);padding:12px 14px;position:relative">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -1077,6 +1156,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             <button class="fmt-btn" onclick="insertHR()">— Line</button>
           </div>
           <div id="diary-editor" contenteditable="true" data-placeholder="Write your thoughts for today…" oninput="markDirty()"></div>
+        </div>
+        <div class="form-group" style="margin-top:4px">
+          <label class="form-label">🏷️ Tags</label>
+          <input type="text" class="form-input" id="diary-tags" placeholder="gratitude, work, travel… (comma separated)" oninput="markDirty()"/>
         </div>
         <div class="form-group" style="margin-top:4px">
           <label class="form-label">📎 Attachments</label>
@@ -1345,6 +1428,20 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         <div id="search-results" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
 
+      <!-- ATTACHMENT GALLERY -->
+      <div class="panel" id="panel-gallery">
+        <div style="display:flex;gap:6px;flex-wrap:wrap" id="gallery-type-pills">
+          <div class="pill active" data-src="all" onclick="setGalleryFilter('all',this)">All</div>
+          <div class="pill" data-src="diary" onclick="setGalleryFilter('diary',this)">📓 Diary</div>
+          <div class="pill" data-src="contacts" onclick="setGalleryFilter('contacts',this)">📇 Contacts</div>
+          <div class="pill" data-src="expenses" onclick="setGalleryFilter('expenses',this)">💰 Expenses</div>
+          <div class="pill" data-src="tasks" onclick="setGalleryFilter('tasks',this)">✅ Tasks</div>
+          <div class="pill" data-src="notes" onclick="setGalleryFilter('notes',this)">📌 Notes</div>
+          <div class="pill" data-src="projects" onclick="setGalleryFilter('projects',this)">🗂 Projects</div>
+        </div>
+        <div id="gallery-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px"></div>
+      </div>
+
       <!-- CALENDAR (full panel) -->
       <div class="panel" id="panel-calendar">
         <div style="position:sticky;top:0;background:var(--bg);z-index:10;padding-bottom:8px">
@@ -1400,12 +1497,15 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   <div class="more-sheet">
     <div class="modal-handle"></div>
     <h3>More</h3>
+    <div class="more-item" onclick="navFromMore('dashboard')"><span class="more-item-icon">🏠</span>Dashboard</div>
     <div class="more-item" onclick="navFromMore('expenses')"><span class="more-item-icon">💰</span>Expenses</div>
     <div class="more-item" onclick="navFromMore('contacts')"><span class="more-item-icon">📇</span>Contacts</div>
     <div class="more-item" onclick="navFromMore('notes')"><span class="more-item-icon">📌</span>Sticky Notes</div>
     <div class="more-item" onclick="navFromMore('notebook')"><span class="more-item-icon">📚</span>Notebooks</div>
     <div class="more-item" onclick="navFromMore('projects')"><span class="more-item-icon">🗂</span>Projects</div>
+    <div class="more-item" onclick="navFromMore('gallery')"><span class="more-item-icon">🖼</span>Attachment Gallery</div>
     <div class="more-item" onclick="navFromMore('search')"><span class="more-item-icon">🔍</span>Search Everything</div>
+    <div class="more-item" onclick="openSettingsModal()"><span class="more-item-icon">⚙️</span>Settings</div>
     <div class="more-item" onclick="downloadEncFile()"><span class="more-item-icon">⬇</span>Download .enc</div>
     <div class="more-item" onclick="exportJSON()"><span class="more-item-icon">📤</span>Export JSON</div>
     <div class="more-item" onclick="openAbout()"><span class="more-item-icon">ℹ</span>About</div>
@@ -1429,6 +1529,9 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       </div>
     </div>
     <div id="login-error" style="color:var(--danger);font-size:13px;display:none;margin-bottom:8px">❌ Wrong password!</div>
+    <div id="login-pin-link" style="display:none;text-align:center;margin-bottom:8px">
+      <button type="button" onclick="startQuickPinUnlock()" style="background:none;border:none;color:var(--primary);font-weight:700;font-size:12.5px;cursor:pointer">🔓 Use Quick PIN instead</button>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-login')">Cancel</button>
       <button class="btn btn-primary" onclick="submitLogin()">Unlock</button>
@@ -1649,6 +1752,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <button onclick="noteCmd('insertUnorderedList')">• List</button>
     </div>
     <div id="note-editor" class="rich-editable" contenteditable="true"></div>
+    <div class="form-group" style="margin-top:10px">
+      <label class="form-label">🏷️ Tags</label>
+      <input type="text" class="form-input" id="note-tags" placeholder="idea, reminder… (comma separated)"/>
+    </div>
     <div class="form-group" style="margin-top:12px">
       <label class="form-label">Color</label>
       <div class="color-row" id="note-color-picker"></div>
@@ -2013,7 +2120,58 @@ Web Version Diary !
   </div>
 </div>
 
-<!-- Setup API -->
+<!-- Settings -->
+<div class="modal-overlay" id="modal-settings">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>⚙️ Settings</h2>
+
+    <div class="form-group">
+      <label class="form-label">🌙 Appearance</label>
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px">
+        <span style="font-size:13px;font-weight:600">Dark mode</span>
+        <button class="btn btn-secondary btn-sm" onclick="toggleDarkMode();refreshSettingsModal()" id="settings-dark-btn">Toggle</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">🔔 Notifications</label>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;font-weight:600">Local due-date &amp; birthday alerts</span>
+          <button class="btn btn-secondary btn-sm" id="settings-notif-btn" onclick="settingsToggleNotifications()">Enable</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">Fires while the app is open, checking overdue/due tasks and today's birthdays. Works fully offline — no data leaves your device.</div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">🔓 Quick PIN Unlock</label>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px" id="settings-pin-box">
+        <!-- filled by refreshSettingsModal() -->
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">Stores an encrypted copy of your diary password on THIS device only, unlocked with a short PIN so you don't have to type your full password every time. Your diary is still fully encrypted with your real password.</div>
+    </div>
+
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-settings')">Close</button></div>
+  </div>
+</div>
+
+<!-- Quick PIN entry (used at set-up and at unlock time) -->
+<div class="modal-overlay" id="modal-pin">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2 id="pin-modal-title">🔓 Enter PIN</h2>
+    <div class="form-group"><input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input" id="pin-input" placeholder="4–6 digit PIN" style="text-align:center;font-size:22px;letter-spacing:6px" maxlength="6"/></div>
+    <div class="form-group" id="pin-confirm-wrap" style="display:none"><input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input" id="pin-confirm-input" placeholder="Confirm PIN" style="text-align:center;font-size:22px;letter-spacing:6px" maxlength="6"/></div>
+    <div id="pin-error" style="display:none;color:var(--danger);font-size:12.5px;text-align:center;margin-top:-6px">Incorrect PIN</div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-pin')">Cancel</button>
+      <button class="btn btn-primary" id="pin-submit-btn" onclick="submitPinModal()">Continue</button>
+    </div>
+  </div>
+</div>
+
 <!-- Setup Modal — OneDrive App ID -->
 <div class="modal-overlay" id="modal-setup">
   <div class="modal">
@@ -2095,6 +2253,15 @@ function openModal(id){document.getElementById(id).classList.add('open');}
 function showLoading(msg){document.getElementById('loading-msg').textContent=msg||'Loading…';document.getElementById('loading-overlay').classList.add('open');}
 function hideLoading(){document.getElementById('loading-overlay').classList.remove('open');}
 function setSyncBadge(state,label){const b=document.getElementById('sync-badge');b.textContent=label;b.className='sync-badge'+(state==='syncing'?' syncing':state==='error'?' error':'');}
+
+// ── DARK MODE ──
+function applyDarkModeIcon(){const btn=document.getElementById('dark-toggle-btn');if(btn)btn.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀':'🌙';}
+function toggleDarkMode(){
+  const isDark=document.documentElement.getAttribute('data-theme')==='dark';
+  if(isDark){document.documentElement.removeAttribute('data-theme');localStorage.setItem('sd_theme','light');}
+  else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('sd_theme','dark');}
+  applyDarkModeIcon();
+}
 
 // ── state ──
 let msalApp=null,accessToken=null,userProfile=null;
@@ -2283,6 +2450,36 @@ function viewSavedAttachments(list){
   w.document.write(`<title>Attachments</title><body style="margin:0;padding:18px;background:#111">${body}</body>`);
 }
 
+// ── ATTACHMENT GALLERY (browse every attachment across the whole diary) ──
+let galleryFilter='all';
+function collectAllAttachments(){
+  const out=[];
+  const push=(type,label,date,atts)=>{(atts||[]).forEach(a=>out.push({type,label,date:date||'',att:a}));};
+  Object.keys(storage.entries||{}).forEach(d=>push('diary','📓 '+fmtDate(d),d,storage.entries[d].attachments));
+  (storage.contacts||[]).forEach(c=>push('contacts','📇 '+c.name,'',c.attachments));
+  (storage.expenses||[]).forEach(e=>push('expenses','💰 '+(e.category||'Expense')+' · ₹'+e.amount,e.date,e.attachments));
+  (storage.todos||[]).forEach(t=>push('tasks','✅ '+t.text,t.due,t.attachments));
+  (storage.lists||[]).forEach(l=>(l.items||[]).forEach(i=>push('tasks','📋 '+i.text,'',i.attachments)));
+  (storage.sticky_notes||[]).forEach(n=>push('notes','📌 Sticky note',n.created,n.attachments));
+  Object.values(storage.notebooks||{}).forEach(nb=>(nb.pages||[]).forEach(p=>push('notes','📚 '+(p.title||'Page'),'',p.attachments)));
+  (storage.projects||[]).forEach(p=>{push('projects','🗂 '+p.name,p.due,p.attachments);(p.tasks||[]).forEach(t=>push('projects','🗂 '+p.name+' → '+t.text,'',t.attachments));});
+  return out.filter(x=>x.att&&x.att.dataUrl).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+}
+function setGalleryFilter(f,el){galleryFilter=f;document.querySelectorAll('#gallery-type-pills .pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderGallery();}
+function renderGallery(){
+  const grid=document.getElementById('gallery-grid');if(!grid||!storage)return;
+  let items=collectAllAttachments();
+  if(galleryFilter!=='all')items=items.filter(x=>x.type===galleryFilter);
+  if(!items.length){grid.innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="empty-icon">🖼</div><p>No attachments yet</p></div>`;return;}
+  grid.innerHTML=items.map((x,i)=>`
+    <div onclick="viewGalleryItem(${i})" title="${escH(x.att.name)}" style="cursor:pointer;border-radius:var(--radius-sm);overflow:hidden;background:var(--surface2);border:1px solid var(--border);aspect-ratio:1;display:flex;align-items:center;justify-content:center;position:relative">
+      ${x.att.mime==='application/pdf'?'<span style="font-size:26px">📄</span>':`<img src="${x.att.dataUrl}" style="width:100%;height:100%;object-fit:cover"/>`}
+      <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.55);color:#fff;font-size:9.5px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(x.label)}</div>
+    </div>`).join('');
+  window._galleryItems=items;
+}
+function viewGalleryItem(i){const items=window._galleryItems||[];const x=items[i];if(!x)return;viewSavedAttachments([x.att]);}
+
 // Static HTML snippet for a module's attachment picker — insert once inside that module's modal.
 function attachPickerHTML(key){
   return `<div class="form-group">
@@ -2417,7 +2614,7 @@ function renderDiaryList(){
 }
 
 function selDriveFile(id,el){document.querySelectorAll('.diary-item').forEach(d=>d.classList.remove('selected'));el.classList.add('selected');selectedDriveFile=driveFiles.find(f=>f.id===id);}
-function openSelected(){if(!selectedDriveFile)return toast('Select a diary first');document.getElementById('login-diary-label').textContent='Opening: '+selectedDriveFile.name.replace('.enc','');document.getElementById('login-pw').value='';document.getElementById('login-error').style.display='none';openModal('modal-login');setTimeout(()=>document.getElementById('login-pw').focus(),300);}
+function openSelected(){if(!selectedDriveFile)return toast('Select a diary first');document.getElementById('login-diary-label').textContent='Opening: '+selectedDriveFile.name.replace('.enc','');document.getElementById('login-pw').value='';document.getElementById('login-error').style.display='none';maybeShowQuickPinLink();openModal('modal-login');setTimeout(()=>document.getElementById('login-pw').focus(),300);}
 
 async function submitLogin(){
   const pw=document.getElementById('login-pw').value;if(!pw)return;
@@ -2476,6 +2673,8 @@ async function saveToDrive(){
     setSyncBadge('ok','Saved ✓');
     document.getElementById('save-status').textContent='✅ Saved to OneDrive '+new Date().toLocaleTimeString();
     dirty=false;
+    markSynced();
+    if(currentPanel==='dashboard')checkBackupNudge();
   }catch(e){
     setSyncBadge('error','Error!');
     toast('❌ OneDrive save failed: '+e.message);
@@ -2488,7 +2687,8 @@ function autoSaveToLocalStorage(){ /* no-op */ }
 function loadFromLocalStorage(){ return null; }
 
 async function saveEntryAndDrive(){saveEntryInMemory();await saveToDrive();}
-function saveEntryInMemory(){const h=document.getElementById('diary-editor').innerHTML.trim();const atts=getAttachStage('diary');if(h||atts.length){storage.entries[currentDate]={note:h,attachments:atts};}else{delete storage.entries[currentDate];}dirty=false;renderCalHighlights();}
+function parseTagsInput(val){return (val||'').split(',').map(t=>t.trim()).filter(Boolean);}
+function saveEntryInMemory(){const h=document.getElementById('diary-editor').innerHTML.trim();const atts=getAttachStage('diary');const tags=parseTagsInput(document.getElementById('diary-tags')?.value);if(h||atts.length){storage.entries[currentDate]={note:h,attachments:atts,tags};}else{delete storage.entries[currentDate];}dirty=false;renderCalHighlights();}
 function markDirty(){dirty=true;document.getElementById('save-status').textContent='Unsaved…';clearTimeout(autoSaveTimer);saveEntryInMemory();autoSaveTimer=setTimeout(saveEntryAndDrive,5000);}
 
 function createNewDiary(){['nd-name','nd-pw','nd-pw2'].forEach(id=>document.getElementById(id).value='');openModal('modal-new-diary');}
@@ -2527,10 +2727,194 @@ async function downloadEncFile(){if(!storage||!currentPassword)return;showLoadin
 function exportJSON(){if(!storage)return;const url=URL.createObjectURL(new Blob([JSON.stringify(storage,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_backup.json';a.click();URL.revokeObjectURL(url);toast('📤 JSON exported');closeMoreMenu();}
 
 // ── LAUNCH APP ──
+// ── LOCAL NOTIFICATIONS ──
+function notificationsEnabled(){return localStorage.getItem('sd_notif_enabled')==='1';}
+async function enableNotifications(){
+  if(!('Notification' in window)){toast('⚠️ Notifications not supported in this browser');return false;}
+  let perm=Notification.permission;
+  if(perm==='default')perm=await Notification.requestPermission();
+  if(perm!=='granted'){toast('⚠️ Notification permission denied');return false;}
+  localStorage.setItem('sd_notif_enabled','1');
+  toast('🔔 Notifications enabled');
+  refreshSettingsModal();
+  checkAndFireNotifications(true);
+  return true;
+}
+function disableNotifications(){
+  localStorage.setItem('sd_notif_enabled','0');
+  toast('🔕 Notifications disabled');
+  refreshSettingsModal();
+}
+async function fireLocalNotification(title,body,tag){
+  try{
+    if('serviceWorker' in navigator){
+      const reg=await navigator.serviceWorker.ready;
+      reg.showNotification(title,{body,tag,icon:'icon-192.png',badge:'icon-192.png'});
+    } else if(Notification.permission==='granted'){
+      new Notification(title,{body,tag});
+    }
+  }catch(e){console.warn('notify failed',e);}
+}
+// Fires each due/overdue task + today's birthdays once per day (dedup via localStorage date stamp)
+function checkAndFireNotifications(force){
+  if(!storage||!notificationsEnabled())return;
+  if(!('Notification' in window)||Notification.permission!=='granted')return;
+  const today=todayStr();
+  const stampKey='sd_notif_last_'+(currentDiaryName||'default');
+  if(!force&&localStorage.getItem(stampKey)===today)return; // already notified today
+  const items=buildReminders();
+  const bds=getUpcomingBirthdays(0); // today only
+  if(items.length){
+    fireLocalNotification('🔔 Secure Diary — '+items.length+' reminder'+(items.length===1?'':'s'),
+      items.slice(0,3).map(r=>r.text).join(' · ')+(items.length>3?' …':''), 'sd-reminders');
+  }
+  bds.forEach(b=>{
+    fireLocalNotification('🎂 Birthday today!', b.contact.name+"'s birthday is today 🎉", 'sd-birthday-'+b.contact.id);
+  });
+  localStorage.setItem(stampKey,today);
+}
+
+// ── SETTINGS MODAL ──
+function openSettingsModal(){closeMoreMenu();refreshSettingsModal();openModal('modal-settings');}
+function refreshSettingsModal(){
+  const darkBtn=document.getElementById('settings-dark-btn');
+  if(darkBtn)darkBtn.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀ Switch to Light':'🌙 Switch to Dark';
+  const notifBtn=document.getElementById('settings-notif-btn');
+  if(notifBtn)notifBtn.textContent=notificationsEnabled()?'🔕 Disable':'🔔 Enable';
+  const pinBox=document.getElementById('settings-pin-box');
+  if(pinBox){
+    const hasPin=!!getQuickPinRecord();
+    pinBox.innerHTML=hasPin
+      ?`<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;font-weight:600;color:var(--accent)">✓ Enabled on this device</span><button class="btn btn-secondary btn-sm" onclick="removeQuickPin()">Disable</button></div>`
+      :`<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;font-weight:600">Not set up</span><button class="btn btn-secondary btn-sm" onclick="startQuickPinSetup()">Set up</button></div>`;
+  }
+}
+async function settingsToggleNotifications(){
+  if(notificationsEnabled())disableNotifications();
+  else await enableNotifications();
+}
+
+// ── QUICK PIN UNLOCK (device-local; wraps the real diary password with a short PIN) ──
+function quickPinStorageKey(){return 'sd_qpin_'+(currentDiaryName||'default');}
+function getQuickPinRecord(){
+  try{const raw=localStorage.getItem(quickPinStorageKey());return raw?JSON.parse(raw):null;}catch(e){return null;}
+}
+function ab2b64(buf){return btoa(String.fromCharCode(...new Uint8Array(buf)));}
+function b642ab(b64){const s=atob(b64);const arr=new Uint8Array(s.length);for(let i=0;i<s.length;i++)arr[i]=s.charCodeAt(i);return arr.buffer;}
+
+let _pinMode='setup'; // 'setup' | 'unlock'
+function startQuickPinSetup(){
+  if(!currentPassword){toast('Open your diary first');return;}
+  _pinMode='setup';
+  document.getElementById('pin-modal-title').textContent='🔓 Set a Quick PIN';
+  document.getElementById('pin-input').value='';
+  document.getElementById('pin-confirm-input').value='';
+  document.getElementById('pin-confirm-wrap').style.display='block';
+  document.getElementById('pin-error').style.display='none';
+  document.getElementById('pin-submit-btn').textContent='Save PIN';
+  closeModal('modal-settings');
+  openModal('modal-pin');
+  setTimeout(()=>document.getElementById('pin-input').focus(),250);
+}
+function removeQuickPin(){
+  if(!confirm('Disable Quick PIN unlock on this device?'))return;
+  localStorage.removeItem(quickPinStorageKey());
+  toast('🔓 Quick PIN disabled');
+  refreshSettingsModal();
+}
+async function submitPinModal(){
+  const pin=document.getElementById('pin-input').value.trim();
+  if(!/^\d{4,6}$/.test(pin)){toast('Enter a 4–6 digit PIN');return;}
+  if(_pinMode==='setup'){
+    const confirmPin=document.getElementById('pin-confirm-input').value.trim();
+    if(pin!==confirmPin){document.getElementById('pin-error').textContent='PINs do not match';document.getElementById('pin-error').style.display='block';return;}
+    try{
+      const ab=await encryptData(currentPassword,pin);
+      const rec={data:ab2b64(ab),diaryName:currentDiaryName,fileId:driveFileId||null,offline:!!isOfflineMode,createdAt:Date.now()};
+      localStorage.setItem(quickPinStorageKey(),JSON.stringify(rec));
+      closeModal('modal-pin');
+      toast('✅ Quick PIN unlock enabled');
+      refreshSettingsModal();
+    }catch(e){toast('❌ Could not save PIN: '+e.message);}
+  } else {
+    const rec=getQuickPinRecord();
+    if(!rec){closeModal('modal-pin');return;}
+    try{
+      const pw=await decryptData(b642ab(rec.data),pin);
+      closeModal('modal-pin');
+      await unlockWithRecoveredPassword(pw);
+    }catch(e){
+      document.getElementById('pin-error').textContent='Incorrect PIN';
+      document.getElementById('pin-error').style.display='block';
+    }
+  }
+}
+function startQuickPinUnlock(){
+  const rec=getQuickPinRecord();
+  if(!rec){toast('No Quick PIN set up for this diary yet');return;}
+  _pinMode='unlock';
+  document.getElementById('pin-modal-title').textContent='🔓 Enter Quick PIN';
+  document.getElementById('pin-input').value='';
+  document.getElementById('pin-confirm-wrap').style.display='none';
+  document.getElementById('pin-error').style.display='none';
+  document.getElementById('pin-submit-btn').textContent='Unlock';
+  closeModal('modal-login');
+  openModal('modal-pin');
+  setTimeout(()=>document.getElementById('pin-input').focus(),250);
+}
+// Shared by the PIN unlock path — fetches + decrypts using a password recovered from the PIN
+async function unlockWithRecoveredPassword(pw){
+  showLoading('Unlocking…');
+  try{
+    const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+selectedDriveFile.id+'/content',{headers:{Authorization:'Bearer '+accessToken}});
+    if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
+    const ab=await r.arrayBuffer();
+    const json=await decryptData(ab,pw);
+    storage=JSON.parse(json);
+    normalizeStorage();
+    currentDiaryName=selectedDriveFile.name.replace('.enc','');currentPassword=pw;driveFileId=selectedDriveFile.id;
+    hideLoading();launchApp();
+  }catch(e){hideLoading();toast('❌ '+e.message);}
+}
+// Called after selecting a diary from the list — shows the Quick PIN link if one exists for it
+function maybeShowQuickPinLink(){
+  const link=document.getElementById('login-pin-link');
+  if(!link)return;
+  const key='sd_qpin_'+(selectedDriveFile?selectedDriveFile.name.replace('.enc',''):'default');
+  link.style.display=localStorage.getItem(key)?'block':'none';
+}
+
+// ── REMINDER EMAIL (opens the device's mail app — this app has no backend to send mail itself) ──
+function sendReminderEmail(){
+  if(!storage)return;
+  const items=buildReminders();
+  const bds=getUpcomingBirthdays(7);
+  if(!items.length&&!bds.length){toast('No reminders to send today 🎉');return;}
+  const lines=[];
+  lines.push('Reminders for '+fmtDate(todayStr())+':');
+  lines.push('');
+  if(items.length){
+    lines.push('TASKS & DUE ITEMS:');
+    items.forEach(r=>lines.push('- ['+r.label+'] '+r.text));
+    lines.push('');
+  }
+  if(bds.length){
+    lines.push('UPCOMING BIRTHDAYS (next 7 days):');
+    bds.forEach(b=>lines.push('- '+b.contact.name+' — '+(b.diffDays===0?'Today!':b.diffDays===1?'Tomorrow':'in '+b.diffDays+' days')));
+    lines.push('');
+  }
+  lines.push('— Sent from Secure Diary');
+  const subject=encodeURIComponent('Your Secure Diary reminders — '+fmtDate(todayStr()));
+  const body=encodeURIComponent(lines.join('\n'));
+  const mailto='mailto:'+(userProfile&&userProfile.mail?userProfile.mail:'')+'?subject='+subject+'&body='+body;
+  window.location.href=mailto;
+}
+
 function launchApp(){
   document.getElementById('selector-screen').classList.remove('active');
   document.getElementById('app-screen').classList.add('active');
   document.getElementById('d-name').textContent=currentDiaryName;
+  applyDarkModeIcon();
   // Show offline/online indicator in drawer
   const driveEl=document.querySelector('.d-drive');
   if(driveEl)driveEl.textContent=isOfflineMode?'💾 Offline Mode':'☁ OneDrive';
@@ -2538,11 +2922,14 @@ function launchApp(){
   currentDate=todayStr();
   calPanelDate=new Date();
   calPanelSelected=todayStr();
-  navTo('diary');
+  navTo('dashboard');
   initCal();
   renderCalHighlights();
   document.addEventListener('keydown',globalKey);
   setSyncBadge('ok',isOfflineMode?'Offline':'Saved');
+  checkAndFireNotifications(false);
+  clearInterval(window._notifInterval);
+  window._notifInterval=setInterval(()=>checkAndFireNotifications(false),30*60*1000);
   if(isOfflineMode){
     document.getElementById('sync-badge').style.background='#5c6bc0';
     // Show a download-on-save reminder
@@ -2551,7 +2938,7 @@ function launchApp(){
 }
 
 // ── NAVIGATION ──
-const PANELS={diary:'📓 Diary',tasks:'✅ Tasks',lists:'📋 Checklists',calendar:'📅 Calendar',expenses:'💰 Expenses',contacts:'📇 Contacts',notes:'📌 Sticky Notes',notebook:'📚 Notebooks',projects:'🗂 Projects',search:'🔍 Search'};
+const PANELS={dashboard:'🏠 Dashboard',diary:'📓 Diary',tasks:'✅ Tasks',lists:'📋 Checklists',calendar:'📅 Calendar',expenses:'💰 Expenses',contacts:'📇 Contacts',notes:'📌 Sticky Notes',notebook:'📚 Notebooks',projects:'🗂 Projects',search:'🔍 Search',gallery:'🖼 Gallery'};
 function navTo(p){
   currentPanel=p;
   document.querySelectorAll('.panel').forEach(el=>el.classList.remove('active'));
@@ -2580,6 +2967,8 @@ function navTo(p){
     performPanelSearch();
     setTimeout(()=>{const inp=document.getElementById('panel-search-input');if(inp)inp.focus();},200);
   }
+  if(p==='dashboard')renderDashboard();
+  if(p==='gallery')renderGallery();
 }
 function navFromMore(p){closeMoreMenu();navTo(p);}
 function openMorePanel(){
@@ -2614,7 +3003,7 @@ function fabAction(){
     return;
   }
   if(currentPanel==='contacts'){editingContactId=null;['contact-name','contact-phone','contact-email','contact-relation','contact-alias','contact-birthday','contact-remark'].forEach(id=>document.getElementById(id).value='');initAttachUI('contact',[]);openModal('modal-contact');return;}
-  if(currentPanel==='notes'){editingNoteId=null;document.getElementById('note-editor').innerHTML='';selectedNoteColor='#fff9c4';initNoteColorPicker();document.querySelectorAll('.color-swatch').forEach((s,i)=>s.classList.toggle('sel',i===0));initAttachUI('note',[]);openModal('modal-note');return;}
+  if(currentPanel==='notes'){editingNoteId=null;document.getElementById('note-editor').innerHTML='';document.getElementById('note-tags').value='';selectedNoteColor='#fff9c4';initNoteColorPicker();document.querySelectorAll('.color-swatch').forEach((s,i)=>s.classList.toggle('sel',i===0));initAttachUI('note',[]);openModal('modal-note');return;}
   if(currentPanel==='notebook'){openNewNotebookModal();return;}
   if(currentPanel==='projects'){openNewProjectModal();return;}
 }
@@ -2758,6 +3147,7 @@ function loadDiaryEntry(){
   chip.textContent='📅 '+fmtDate(currentDate)+(currentDate===todayStr()?' (Today)':'');
   const entry=storage.entries&&storage.entries[currentDate];
   document.getElementById('diary-editor').innerHTML=entry?entry.note:'';
+  document.getElementById('diary-tags').value=entry&&entry.tags?entry.tags.join(', '):'';
   initAttachUI('diary', entry?entry.attachments:[]);
   document.getElementById('save-status').textContent='Ready';
   dirty=false;
@@ -3292,14 +3682,15 @@ function renderNotes(){
       </div>
     </div>`).join(''):`<div class="empty" style="grid-column:1/-1"><div class="empty-icon">📌</div><p>No sticky notes</p></div>`;
 }
-function editNote(id){const n=storage.sticky_notes.find(x=>x.id===id);if(!n)return;initNoteColorPicker();editingNoteId=id;document.getElementById('note-editor').innerHTML=n.text;selectedNoteColor=n.color||'#fff9c4';document.querySelectorAll('.color-swatch').forEach(s=>s.classList.toggle('sel',s.dataset.color===selectedNoteColor));initAttachUI('note',n.attachments);openModal('modal-note');}
+function editNote(id){const n=storage.sticky_notes.find(x=>x.id===id);if(!n)return;initNoteColorPicker();editingNoteId=id;document.getElementById('note-editor').innerHTML=n.text;document.getElementById('note-tags').value=n.tags?n.tags.join(', '):'';selectedNoteColor=n.color||'#fff9c4';document.querySelectorAll('.color-swatch').forEach(s=>s.classList.toggle('sel',s.dataset.color===selectedNoteColor));initAttachUI('note',n.attachments);openModal('modal-note');}
 function deleteNote(id){if(!confirm('Delete note?'))return;storage.sticky_notes=storage.sticky_notes.filter(x=>x.id!==id);renderNotes();saveToDrive();}
 function pickNoteColor(el,color){selectedNoteColor=color;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('sel'));el.classList.add('sel');}
 function submitNote(){
   const text=document.getElementById('note-editor').innerHTML.trim();if(!text||text==='<br>')return toast('Enter note text');
   const attachments=getAttachStage('note');
-  if(editingNoteId){const n=storage.sticky_notes.find(x=>x.id===editingNoteId);if(n){n.text=text;n.color=selectedNoteColor;n.attachments=attachments;}}
-  else{storage.sticky_notes.push({id:uuid(),text,color:selectedNoteColor,created:todayStr(),attachments});}
+  const tags=parseTagsInput(document.getElementById('note-tags').value);
+  if(editingNoteId){const n=storage.sticky_notes.find(x=>x.id===editingNoteId);if(n){n.text=text;n.color=selectedNoteColor;n.attachments=attachments;n.tags=tags;}}
+  else{storage.sticky_notes.push({id:uuid(),text,color:selectedNoteColor,created:todayStr(),attachments,tags});}
   closeModal('modal-note');renderNotes();saveToDrive();
 }
 function noteCmd(cmd){document.execCommand(cmd,false,null);}
@@ -4215,6 +4606,137 @@ function renderDueTasksWidget(){
   widget.style.display='block';
 }
 
+// ── DASHBOARD ──
+function getUpcomingBirthdays(days){
+  days=days||30;
+  const today=new Date();today.setHours(0,0,0,0);
+  const out=[];
+  (storage.contacts||[]).forEach(c=>{
+    if(!c.birthday)return;
+    const bd=new Date(c.birthday+'T00:00:00');
+    let next=new Date(today.getFullYear(),bd.getMonth(),bd.getDate());
+    if(next<today)next=new Date(today.getFullYear()+1,bd.getMonth(),bd.getDate());
+    const diffDays=Math.round((next-today)/86400000);
+    if(diffDays<=days)out.push({contact:c,next,diffDays});
+  });
+  return out.sort((a,b)=>a.diffDays-b.diffDays);
+}
+function computeMonthSpend(){
+  const now=new Date();const ym=now.toISOString().slice(0,7);
+  const items=(storage.expenses||[]).filter(e=>(e.date||'').slice(0,7)===ym);
+  const total=items.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  const byCat={};
+  items.forEach(e=>{const c=e.category||'Other';byCat[c]=(byCat[c]||0)+(parseFloat(e.amount)||0);});
+  const topCat=Object.entries(byCat).sort((a,b)=>b[1]-a[1])[0];
+  return {total,count:items.length,topCat};
+}
+function getGlobalTags(){
+  const set=new Set();
+  Object.values(storage.entries||{}).forEach(e=>(e.tags||[]).forEach(t=>set.add(t)));
+  (storage.sticky_notes||[]).forEach(n=>(n.tags||[]).forEach(t=>set.add(t)));
+  (storage.projects||[]).forEach(p=>{if(p.category)set.add(p.category);(p.tags||[]).forEach(t=>set.add(t));});
+  return [...set].sort((a,b)=>a.localeCompare(b));
+}
+function checkBackupNudge(){
+  const el=document.getElementById('dash-backup-nudge');const txt=document.getElementById('dash-backup-nudge-text');
+  if(!el||!txt)return;
+  const key='sd_last_sync_'+(currentDiaryName||'default');
+  const last=localStorage.getItem(key);
+  if(!last){el.style.display='none';return;}
+  const days=Math.floor((Date.now()-parseInt(last,10))/86400000);
+  const THRESHOLD=3;
+  if(days>=THRESHOLD){
+    txt.textContent=`You haven't synced to OneDrive in ${days} day${days===1?'':'s'}. Back up now to avoid losing changes.`;
+    el.style.display='flex';
+  } else {
+    el.style.display='none';
+  }
+}
+function markSynced(){
+  try{localStorage.setItem('sd_last_sync_'+(currentDiaryName||'default'),String(Date.now()));}catch(e){}
+}
+function renderDashboard(){
+  if(!storage)return;
+  const hour=new Date().getHours();
+  const greet=hour<12?'Good morning':hour<17?'Good afternoon':'Good evening';
+  document.getElementById('dash-greeting').textContent=greet+(userProfile&&userProfile.displayName?', '+userProfile.displayName.split(' ')[0]:'')+' 👋';
+  document.getElementById('dash-date').textContent=new Date().toLocaleDateString('en-IN',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+
+  checkBackupNudge();
+
+  // stats row
+  const pendingTasks=(storage.todos||[]).filter(t=>!t.done).length;
+  const entryCount=Object.keys(storage.entries||{}).length;
+  const contactCount=(storage.contacts||[]).length;
+  const projectCount=(storage.projects||[]).filter(p=>p.status==='active').length;
+  document.getElementById('dash-stats').innerHTML=`
+    <div class="card" style="padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--primary)">${pendingTasks}</div><div style="font-size:10.5px;color:var(--text-muted);font-weight:600">Pending Tasks</div></div>
+    <div class="card" style="padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--accent)">${entryCount}</div><div style="font-size:10.5px;color:var(--text-muted);font-weight:600">Diary Entries</div></div>
+    <div class="card" style="padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--gold)">${contactCount}</div><div style="font-size:10.5px;color:var(--text-muted);font-weight:600">Contacts</div></div>
+    <div class="card" style="padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--warning)">${projectCount}</div><div style="font-size:10.5px;color:var(--text-muted);font-weight:600">Active Projects</div></div>`;
+
+  // today's tasks
+  const today=todayStr();
+  const todays=(storage.todos||[]).filter(t=>!t.done&&(t.due===today||(t.due&&t.due<today))).slice(0,5);
+  const dtl=document.getElementById('dash-tasks-list');
+  dtl.innerHTML=todays.length?todays.map(t=>{
+    const overdue=t.due&&t.due<today;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface2);border-radius:var(--radius-sm)" onclick="navTo('tasks')">
+      <input type="checkbox" onchange="toggleTask('${t.id}');renderDashboard()" onclick="event.stopPropagation()" style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer"/>
+      <div style="flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(t.text)}</div>
+      ${overdue?'<span style="font-size:10px;font-weight:700;color:var(--danger)">OVERDUE</span>':'<span style="font-size:10px;font-weight:700;color:var(--warning)">TODAY</span>'}
+    </div>`;
+  }).join(''):'<div style="font-size:13px;color:var(--text-muted)">Nothing due today 🎉</div>';
+
+  // birthdays
+  const bds=getUpcomingBirthdays(30);
+  const bdl=document.getElementById('dash-birthdays-list');
+  bdl.innerHTML=bds.length?bds.slice(0,5).map(b=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--surface2);border-radius:var(--radius-sm)" onclick="navTo('contacts')">
+      <div style="width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${escH((b.contact.name||'?')[0].toUpperCase())}</div>
+      <div style="flex:1;font-size:13px;font-weight:600">${escH(b.contact.name)}</div>
+      <span style="font-size:11px;color:var(--text-muted);font-weight:700">${b.diffDays===0?'🎉 Today!':b.diffDays===1?'Tomorrow':b.diffDays+'d'}</span>
+    </div>`).join(''):'<div style="font-size:13px;color:var(--text-muted)">No birthdays in the next 30 days</div>';
+
+  // month spend
+  const ms=computeMonthSpend();
+  document.getElementById('dash-spend-summary').innerHTML=ms.count?`
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <div style="font-size:24px;font-weight:700;color:var(--primary)">₹${ms.total.toLocaleString('en-IN')}</div>
+      <div style="font-size:12px;color:var(--text-muted)">across ${ms.count} expense${ms.count===1?'':'s'} this month</div>
+    </div>
+    ${ms.topCat?`<div style="font-size:12px;color:var(--text-mid);margin-top:4px">Top category: <b>${escH(ms.topCat[0])}</b> (₹${ms.topCat[1].toLocaleString('en-IN')})</div>`:''}`
+    :'<div style="font-size:13px;color:var(--text-muted)">No expenses logged this month yet</div>';
+
+  // recent diary entry
+  const dates=Object.keys(storage.entries||{}).sort().reverse();
+  const rd=document.getElementById('dash-recent-entry');
+  if(dates.length){
+    const d=dates[0];const e=storage.entries[d];
+    const plain=(e.note||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+    rd.innerHTML=`<div style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:4px">${fmtDate(d)}</div><div>${escH(plain.slice(0,180))}${plain.length>180?'…':''}</div>`;
+  } else {
+    rd.innerHTML='<div style="color:var(--text-muted)">No diary entries yet — start writing today!</div>';
+  }
+
+  // tags cloud
+  const tags=getGlobalTags();
+  const tagsCard=document.getElementById('dash-tags-card');
+  if(tags.length){
+    tagsCard.style.display='block';
+    document.getElementById('dash-tags-cloud').innerHTML=tags.map(t=>`<div class="pill" onclick="searchByTag('${t.replace(/'/g,"\\'")}')" style="cursor:pointer">#${escH(t)}</div>`).join('');
+  } else {
+    tagsCard.style.display='none';
+  }
+}
+function searchByTag(tag){
+  navTo('search');
+  setTimeout(()=>{
+    const inp=document.getElementById('panel-search-input');
+    if(inp){inp.value='#'+tag;performPanelSearch();}
+  },250);
+}
+
 
 let searchTypeFilter='all';
 let _searchFiltersOpen=false;
@@ -4336,9 +4858,9 @@ function buildSearchResults(q,typeFilter){
   if(typeFilter==='all'||typeFilter==='diary'){
     Object.entries(storage.entries||{}).forEach(([d,e])=>{
       if(!passesDateFilter(d))return;
-      const text=(e.note||'').replace(/<[^>]+>/g,'');
+      const text=(e.note||'').replace(/<[^>]+>/g,'')+' '+((e.tags||[]).join(' '));
       if(text&&matches(text)){
-        const snippet=extractSnippet(e.note||'',q);
+        const snippet=extractSnippet(e.note||'',q)+((e.tags&&e.tags.length)?'  🏷 '+e.tags.join(', '):'');
         results.push({type:'Diary',date:d,snippet,rawText:text,score:scoreResult(text,q),action:()=>jumpToDate(d)});
       }
     });
@@ -4369,9 +4891,9 @@ function buildSearchResults(q,typeFilter){
   if(typeFilter==='all'||typeFilter==='notes'){
     (storage.sticky_notes||[]).forEach(n=>{
       if(!passesDateFilter(n.created||''))return;
-      const text=n.text.replace(/<[^>]+>/g,'');
+      const text=n.text.replace(/<[^>]+>/g,'')+' '+((n.tags||[]).join(' '));
       if(matches(text))
-        results.push({type:'Note',date:n.created||'',snippet:extractSnippet(n.text,q),rawText:text,score:scoreResult(text,q),action:()=>navTo('notes')});
+        results.push({type:'Note',date:n.created||'',snippet:extractSnippet(n.text,q)+((n.tags&&n.tags.length)?'  🏷 '+n.tags.join(', '):''),rawText:text,score:scoreResult(text,q),action:()=>navTo('notes')});
     });
     Object.values(storage.notebooks||{}).forEach(nb=>{
       Object.values(nb.pages||{}).forEach(p=>{
@@ -4388,6 +4910,9 @@ function buildSearchResults(q,typeFilter){
       });
     });
     (storage.projects||[]).forEach(p=>{
+      const phay=[p.name||'',p.category||'',(p.tags||[]).join(' ')].join(' ');
+      if(matches(phay))
+        results.push({type:'Project',date:'',snippet:p.name+(p.category?'  🏷 '+p.category:''),rawText:phay,score:scoreResult(phay,q),action:()=>navTo('projects')});
       (p.tasks||[]).forEach(t=>{
         if(matches(t.text))
           results.push({type:'Project',date:'',snippet:p.name+' → '+t.text,rawText:t.text,score:scoreResult(t.text,q),action:()=>navTo('projects')});
@@ -4436,7 +4961,7 @@ function performPanelSearch(){
     if(countEl)countEl.textContent='';
     return;
   }
-  const results=buildSearchResults(q,searchTypeFilter);
+  const results=buildSearchResults(q.startsWith('#')?q.slice(1):q,searchTypeFilter);
   if(countEl)countEl.textContent=results.length?`${results.length} result${results.length===1?'':'s'} found`:'';
   renderSearchResults(results,q,container);
 }
