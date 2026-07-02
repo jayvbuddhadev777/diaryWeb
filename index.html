@@ -1168,7 +1168,15 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <!-- CONTACTS -->
       <div class="panel" id="panel-contacts">
         <input type="text" class="form-input" id="contact-search" placeholder="🔍 Search contacts…" oninput="renderContacts()"/>
-        <div style="display:flex;gap:8px;margin:-4px 0 4px">
+        <div id="contact-search-scope" style="display:flex;gap:6px;overflow-x:auto;padding:6px 2px 8px;flex-shrink:0">
+          <div class="pill active" data-field="all" onclick="setContactSearchField('all',this)">All</div>
+          <div class="pill" data-field="name" onclick="setContactSearchField('name',this)">Name</div>
+          <div class="pill" data-field="relation" onclick="setContactSearchField('relation',this)">Relation</div>
+          <div class="pill" data-field="phone" onclick="setContactSearchField('phone',this)">Phone</div>
+          <div class="pill" data-field="email" onclick="setContactSearchField('email',this)">Email</div>
+          <div class="pill" data-field="alias" onclick="setContactSearchField('alias',this)">Alias</div>
+        </div>
+        <div style="display:flex;gap:8px;margin:0 0 4px">
           <button class="btn btn-secondary" style="flex:1;padding:9px;font-size:12.5px" onclick="document.getElementById('contact-excel-input').click()">📥 Import Excel/CSV</button>
           <button class="btn btn-secondary" style="flex:1;padding:9px;font-size:12.5px" onclick="downloadContactTemplate()">⬇️ Template</button>
         </div>
@@ -3144,9 +3152,29 @@ function deleteManageItem(i){
 }
 
 // ── CONTACTS ──
+let contactSearchField='all';
+const CONTACT_SEARCH_PLACEHOLDERS={all:'🔍 Search contacts…',name:'🔍 Search by name…',relation:'🔍 Search by relation…',phone:'🔍 Search by phone…',email:'🔍 Search by email…',alias:'🔍 Search by alias / nickname…'};
+function setContactSearchField(field,el){
+  contactSearchField=field;
+  document.querySelectorAll('#contact-search-scope .pill').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  const inp=document.getElementById('contact-search');
+  inp.placeholder=CONTACT_SEARCH_PLACEHOLDERS[field]||CONTACT_SEARCH_PLACEHOLDERS.all;
+  renderContacts();
+}
 function renderContacts(){
   const q=(document.getElementById('contact-search')?.value||'').toLowerCase();
-  let cs=(storage.contacts||[]).filter(c=>!q||c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q)||(c.relation||'').toLowerCase().includes(q)||(c.alias||'').toLowerCase().includes(q));
+  let cs=(storage.contacts||[]).filter(c=>{
+    if(!q)return true;
+    switch(contactSearchField){
+      case 'name': return (c.name||'').toLowerCase().includes(q);
+      case 'relation': return (c.relation||'').toLowerCase().includes(q);
+      case 'phone': return (c.phone||'').toLowerCase().includes(q);
+      case 'email': return (c.email||'').toLowerCase().includes(q);
+      case 'alias': return (c.alias||'').toLowerCase().includes(q);
+      default: return c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q)||(c.relation||'').toLowerCase().includes(q)||(c.alias||'').toLowerCase().includes(q);
+    }
+  });
   cs=[...cs].sort((a,b)=>a.name.localeCompare(b.name));
   document.getElementById('contacts-list').innerHTML=cs.length?cs.map(c=>`
     <div class="card" style="display:flex;align-items:center;gap:12px">
