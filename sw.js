@@ -1,7 +1,7 @@
 // Secure Diary — Service Worker
 // Caches the app shell so it works offline after first load.
 
-const CACHE = 'secure-diary-v1';
+const CACHE = 'secure-diary-v2';
 
 // Files to cache on install (the app shell)
 const SHELL = [
@@ -9,6 +9,7 @@ const SHELL = [
   '/index.html',
   'https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
   'https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.10.0/lib/msal-browser.min.js',
+  'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
 ];
 
 self.addEventListener('install', e => {

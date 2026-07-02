@@ -578,6 +578,17 @@ html, body {
 .modal-footer { display: flex; gap: 10px; margin-top: 20px; }
 .modal-footer .btn { padding: 14px; font-size: 14px; }
 
+/* ── Attachments (image / PDF / screenshot) ── */
+.attach-strip { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.attach-thumb { position:relative; width:60px; height:60px; border-radius:9px; overflow:hidden; border:1.5px solid var(--border); background:var(--surface2); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+.attach-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.attach-thumb .attach-pdf-ico { font-size:24px; }
+.attach-thumb .attach-name { position:absolute; bottom:0; left:0; right:0; background:rgba(0,0,0,0.55); color:#fff; font-size:8px; padding:1px 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.attach-thumb .attach-rm { position:absolute; top:-6px; right:-6px; background:var(--danger); color:#fff; border-radius:50%; width:19px; height:19px; font-size:12px; line-height:18px; text-align:center; cursor:pointer; border:2px solid var(--surface); font-weight:700; }
+.attach-btns { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.attach-btn { background:var(--surface2); border:1.5px dashed var(--border); border-radius:9px; padding:8px 12px; font-size:12px; font-weight:700; cursor:pointer; color:var(--text-muted); font-family:'DM Sans',sans-serif; }
+.attach-btn:active { opacity:0.7; }
+
 /* Form */
 .form-group { margin-bottom: 14px; }
 .form-label { font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 5px; display: block; text-transform: uppercase; letter-spacing: 0.3px; }
@@ -1067,6 +1078,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
           </div>
           <div id="diary-editor" contenteditable="true" data-placeholder="Write your thoughts for today…" oninput="markDirty()"></div>
         </div>
+        <div class="form-group" style="margin-top:4px">
+          <label class="form-label">📎 Attachments</label>
+          <div id="attach-strip-diary" class="attach-strip"></div>
+          <div class="attach-btns">
+            <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-diary').click()">🖼️ Photo</button>
+            <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-diary').click()">📄 PDF</button>
+            <button type="button" class="attach-btn" onclick="captureScreenshot('diary')">🖥️ Screenshot</button>
+          </div>
+          <input type="file" id="attach-img-diary" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('diary',this,'image');markDirty()"/>
+          <input type="file" id="attach-pdf-diary" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('diary',this,'pdf');markDirty()"/>
+        </div>
         <button class="btn btn-primary" onclick="saveEntryAndDrive()">💾 Save Entry</button>
         <div id="save-status" style="font-size:12px;color:var(--text-muted);text-align:center;padding-bottom:8px">Ready</div>
       </div>
@@ -1146,6 +1168,11 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <!-- CONTACTS -->
       <div class="panel" id="panel-contacts">
         <input type="text" class="form-input" id="contact-search" placeholder="🔍 Search contacts…" oninput="renderContacts()"/>
+        <div style="display:flex;gap:8px;margin:-4px 0 4px">
+          <button class="btn btn-secondary" style="flex:1;padding:9px;font-size:12.5px" onclick="document.getElementById('contact-excel-input').click()">📥 Import Excel/CSV</button>
+          <button class="btn btn-secondary" style="flex:1;padding:9px;font-size:12.5px" onclick="downloadContactTemplate()">⬇️ Template</button>
+        </div>
+        <input type="file" id="contact-excel-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleContactImportFile(this)"/>
         <div id="contacts-list" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
 
@@ -1459,6 +1486,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <label class="form-label">Tags (comma separated)</label>
       <input type="text" class="form-input" id="task-tags" placeholder="work, urgent"/>
     </div>
+    <div class="form-group">
+      <label class="form-label">📎 Attachments</label>
+      <div id="attach-strip-task" class="attach-strip"></div>
+      <div class="attach-btns">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-task').click()">🖼️ Photo</button>
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-task').click()">📄 PDF</button>
+        <button type="button" class="attach-btn" onclick="captureScreenshot('task')">🖥️ Screenshot</button>
+      </div>
+      <input type="file" id="attach-img-task" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('task',this,'image')"/>
+      <input type="file" id="attach-pdf-task" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('task',this,'pdf')"/>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-task')">Cancel</button>
       <button class="btn btn-primary" onclick="submitTask()">Save</button>
@@ -1525,6 +1563,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <label class="form-label">Remark</label>
       <input type="text" class="form-input" id="exp-remark" placeholder="Short remark"/>
     </div>
+    <div class="form-group">
+      <label class="form-label">📎 Attachments <span style="font-weight:400;color:var(--text-muted)">(receipts, bills…)</span></label>
+      <div id="attach-strip-expense" class="attach-strip"></div>
+      <div class="attach-btns">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-expense').click()">🖼️ Photo</button>
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-expense').click()">📄 PDF</button>
+        <button type="button" class="attach-btn" onclick="captureScreenshot('expense')">🖥️ Screenshot</button>
+      </div>
+      <input type="file" id="attach-img-expense" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('expense',this,'image')"/>
+      <input type="file" id="attach-pdf-expense" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('expense',this,'pdf')"/>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-expense')">Cancel</button>
       <button class="btn btn-primary" id="exp-save-btn" onclick="submitExpense()">💸 Save Expense</button>
@@ -1556,7 +1605,23 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-input" id="contact-name" placeholder="Full name"/></div>
     <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="contact-phone" placeholder="+91 98765 43210"/></div>
     <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="contact-email" placeholder="email@example.com"/></div>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Relation</label><input type="text" class="form-input" id="contact-relation" placeholder="Friend, Cousin, Colleague…"/></div>
+      <div class="form-group"><label class="form-label">Alias / Nickname</label><input type="text" class="form-input" id="contact-alias" placeholder="Bunty, Boss…"/></div>
+    </div>
+    <div class="form-group"><label class="form-label">Birthday</label><input type="date" class="form-input" id="contact-birthday"/></div>
     <div class="form-group"><label class="form-label">Remark</label><input type="text" class="form-input" id="contact-remark" placeholder="Optional"/></div>
+    <div class="form-group">
+      <label class="form-label">📎 Attachments</label>
+      <div id="attach-strip-contact" class="attach-strip"></div>
+      <div class="attach-btns">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-contact').click()">🖼️ Photo</button>
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-contact').click()">📄 PDF</button>
+        <button type="button" class="attach-btn" onclick="captureScreenshot('contact')">🖥️ Screenshot</button>
+      </div>
+      <input type="file" id="attach-img-contact" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('contact',this,'image')"/>
+      <input type="file" id="attach-pdf-contact" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('contact',this,'pdf')"/>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-contact')">Cancel</button>
       <button class="btn btn-primary" onclick="submitContact()">Save</button>
@@ -1580,6 +1645,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <label class="form-label">Color</label>
       <div class="color-row" id="note-color-picker"></div>
     </div>
+    <div class="form-group">
+      <label class="form-label">📎 Attachments</label>
+      <div id="attach-strip-note" class="attach-strip"></div>
+      <div class="attach-btns">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-note').click()">🖼️ Photo</button>
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-note').click()">📄 PDF</button>
+        <button type="button" class="attach-btn" onclick="captureScreenshot('note')">🖥️ Screenshot</button>
+      </div>
+      <input type="file" id="attach-img-note" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('note',this,'image')"/>
+      <input type="file" id="attach-pdf-note" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('note',this,'pdf')"/>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-note')">Cancel</button>
       <button class="btn btn-primary" onclick="submitNote()">Save</button>
@@ -1593,6 +1669,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="modal-handle"></div>
     <h2>➕ Add Item</h2>
     <div class="form-group"><label class="form-label">Item</label><input type="text" class="form-input" id="cli-text" placeholder="Item text…" onkeydown="if(event.key==='Enter')submitCLI()"/></div>
+    <div class="form-group">
+      <label class="form-label">📎 Attachments</label>
+      <div id="attach-strip-cli" class="attach-strip"></div>
+      <div class="attach-btns">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-cli').click()">🖼️ Photo</button>
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-cli').click()">📄 PDF</button>
+        <button type="button" class="attach-btn" onclick="captureScreenshot('cli')">🖥️ Screenshot</button>
+      </div>
+      <input type="file" id="attach-img-cli" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('cli',this,'image')"/>
+      <input type="file" id="attach-pdf-cli" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('cli',this,'pdf')"/>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-cli')">Cancel</button>
       <button class="btn btn-primary" onclick="submitCLI()">Add</button>
@@ -1644,6 +1731,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <button onclick="nbFmtBlock('pre')" title="Code block">{ }</button>
       <button onclick="nbCmd('insertHorizontalRule')" title="Divider">—</button>
       <button onclick="nbCmd('removeFormat')" title="Clear format">✕ Fmt</button>
+    </div>
+    <!-- Attachments -->
+    <div style="padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)">
+      <div id="attach-strip-nbpage" class="attach-strip"></div>
+      <div class="attach-btns">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-nbpage').click()">🖼️ Photo</button>
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-nbpage').click()">📄 PDF</button>
+        <button type="button" class="attach-btn" onclick="captureScreenshot('nbpage')">🖥️ Screenshot</button>
+      </div>
+      <input type="file" id="attach-img-nbpage" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('nbpage',this,'image')"/>
+      <input type="file" id="attach-pdf-nbpage" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('nbpage',this,'pdf')"/>
     </div>
     <!-- Editor -->
     <div id="nb-page-editor" class="rich-editable" contenteditable="true"
@@ -1798,6 +1896,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       </div>
       <input type="hidden" id="proj-color" value="#1a3a6b"/>
     </div>
+    <div class="form-group">
+      <label class="form-label">📎 Attachments</label>
+      <div id="attach-strip-project" class="attach-strip"></div>
+      <div class="attach-btns">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-project').click()">🖼️ Photo</button>
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-project').click()">📄 PDF</button>
+        <button type="button" class="attach-btn" onclick="captureScreenshot('project')">🖥️ Screenshot</button>
+      </div>
+      <input type="file" id="attach-img-project" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('project',this,'image')"/>
+      <input type="file" id="attach-pdf-project" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('project',this,'pdf')"/>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-project')">Cancel</button>
       <button class="btn btn-primary" id="proj-submit-btn" onclick="submitProject()">Create</button>
@@ -1838,6 +1947,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         <button onclick="addSubtaskField()" style="background:none;border:none;font-size:13px;color:var(--primary);font-weight:700;cursor:pointer">＋ Add</button>
       </div>
       <div id="subtask-fields" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">📎 Attachments</label>
+      <div id="attach-strip-ptask" class="attach-strip"></div>
+      <div class="attach-btns">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-ptask').click()">🖼️ Photo</button>
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-ptask').click()">📄 PDF</button>
+        <button type="button" class="attach-btn" onclick="captureScreenshot('ptask')">🖥️ Screenshot</button>
+      </div>
+      <input type="file" id="attach-img-ptask" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('ptask',this,'image')"/>
+      <input type="file" id="attach-pdf-ptask" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('ptask',this,'pdf')"/>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-proj-task')">Cancel</button>
@@ -1943,6 +2063,7 @@ Web Version Diary !
 <div id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.10.0/lib/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 // ═══════════════════════════════════════
 //  SECURE DIARY — OneDrive Edition
@@ -2020,9 +2141,171 @@ async function decryptData(ab, pw){
   throw new Error('Decryption failed — wrong password or unsupported format');
 }
 
+// ── ATTACHMENTS (image / PDF / screenshot) ──
+// Shared engine used by every module (diary, tasks, expenses, contacts, notes,
+// checklist items, notebook pages, projects, project tasks). Each module owns
+// a "key" (e.g. 'task', 'diary') and stages edits in attachStage[key] while its
+// modal/editor is open; the module's submit function copies that into storage.
+const MAX_ATTACH_BYTES = 8*1024*1024; // 8MB per file safety cap
+let attachStage = {};
+
+function initAttachUI(key, existing){
+  attachStage[key] = (existing||[]).map(a=>({...a}));
+  renderAttachUI(key);
+}
+function getAttachStage(key){ return attachStage[key]||[]; }
+
+function renderAttachUI(key){
+  const box=document.getElementById('attach-strip-'+key); if(!box) return;
+  const list=attachStage[key]||[];
+  box.innerHTML = list.map(a=>`
+    <div class="attach-thumb" onclick="viewAttachment('${key}','${a.id}')" title="${escH(a.name)}">
+      ${a.mime==='application/pdf'?'<span class="attach-pdf-ico">📄</span>':`<img src="${a.dataUrl}"/>`}
+      <span class="attach-name">${escH(a.name)}</span>
+      <span class="attach-rm" onclick="event.stopPropagation();removeAttach('${key}','${a.id}')">✕</span>
+    </div>`).join('');
+}
+
+function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>resolve(r.result);
+    r.onerror=reject;
+    r.readAsDataURL(file);
+  });
+}
+
+// Shrinks large photos to keep the encrypted diary file (synced whole to OneDrive) manageable.
+function downscaleImage(dataUrl, maxDim, quality){
+  maxDim=maxDim||1600; quality=quality||0.82;
+  return new Promise((resolve)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w<=maxDim&&h<=maxDim){resolve(dataUrl);return;}
+      const scale=Math.min(maxDim/w,maxDim/h);
+      const cw=Math.round(w*scale),ch=Math.round(h*scale);
+      const canvas=document.createElement('canvas');canvas.width=cw;canvas.height=ch;
+      canvas.getContext('2d').drawImage(img,0,0,cw,ch);
+      resolve(canvas.toDataURL('image/jpeg',quality));
+    };
+    img.onerror=()=>resolve(dataUrl);
+    img.src=dataUrl;
+  });
+}
+
+async function handleAttachFiles(key, inputEl, kind){
+  const files=Array.from(inputEl.files||[]);
+  inputEl.value='';
+  for(const f of files){
+    if(f.size>MAX_ATTACH_BYTES){toast('⚠️ '+f.name+' is too large (max 8MB)');continue;}
+    try{
+      let dataUrl=await fileToDataUrl(f);
+      if(kind==='image') dataUrl=await downscaleImage(dataUrl);
+      (attachStage[key]=attachStage[key]||[]).push({
+        id:uuid(), name:f.name, mime:kind==='pdf'?'application/pdf':'image/jpeg',
+        dataUrl, addedAt:new Date().toISOString()
+      });
+    }catch(e){console.error(e);toast('❌ Could not attach '+f.name);}
+  }
+  renderAttachUI(key);
+}
+
+async function captureScreenshot(key){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){
+    toast('⚠️ Screenshot capture isn\'t supported in this browser — try 🖼️ Photo instead');
+    return;
+  }
+  let stream;
+  try{
+    stream=await navigator.mediaDevices.getDisplayMedia({video:true});
+    const video=document.createElement('video');
+    video.srcObject=stream; video.muted=true;
+    await video.play();
+    await new Promise(r=>setTimeout(r,300)); // let a real frame render
+    const canvas=document.createElement('canvas');
+    canvas.width=video.videoWidth; canvas.height=video.videoHeight;
+    canvas.getContext('2d').drawImage(video,0,0);
+    let dataUrl=canvas.toDataURL('image/jpeg',0.85);
+    dataUrl=await downscaleImage(dataUrl);
+    (attachStage[key]=attachStage[key]||[]).push({
+      id:uuid(), name:'screenshot-'+Date.now()+'.jpg', mime:'image/jpeg',
+      dataUrl, addedAt:new Date().toISOString()
+    });
+    renderAttachUI(key);
+    toast('📸 Screenshot attached');
+  }catch(e){
+    if(e.name!=='NotAllowedError') toast('❌ Screenshot failed: '+e.message);
+  }finally{
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+  }
+}
+
+function removeAttach(key,id){
+  attachStage[key]=(attachStage[key]||[]).filter(a=>a.id!==id);
+  renderAttachUI(key);
+}
+
+function viewAttachment(key,id){
+  const a=(attachStage[key]||[]).find(x=>x.id===id); if(!a) return;
+  const w=window.open('about:blank');
+  if(!w){toast('⚠️ Allow popups to view attachment');return;}
+  const safeName=escH(a.name);
+  if(a.mime==='application/pdf'){
+    w.document.write(`<title>${safeName}</title><body style="margin:0"><iframe src="${a.dataUrl}" style="border:none;width:100vw;height:100vh"></iframe></body>`);
+  } else {
+    w.document.write(`<title>${safeName}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${a.dataUrl}" style="max-width:100%;max-height:100vh"/></body>`);
+  }
+}
+
+// Small attachment badge shown in list rows, e.g. renderAttachBadge(item.attachments)
+function renderAttachBadge(list){
+  return (list&&list.length)?`<span style="font-size:11px;color:var(--text-muted);font-weight:600">📎${list.length}</span>`:'';
+}
+
+// Quick read-only gallery for an already-saved attachments array (used from list views).
+function viewSavedAttachments(list){
+  if(!list||!list.length){toast('No attachments');return;}
+  const w=window.open('about:blank');
+  if(!w){toast('⚠️ Allow popups to view attachments');return;}
+  const body=list.map(a=>a.mime==='application/pdf'
+    ? `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:6px">📄 ${escH(a.name)}</div><iframe src="${a.dataUrl}" style="width:100%;height:80vh;border:1px solid #333;border-radius:6px"></iframe></div>`
+    : `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:6px">🖼️ ${escH(a.name)}</div><img src="${a.dataUrl}" style="max-width:100%;border-radius:6px"/></div>`
+  ).join('');
+  w.document.write(`<title>Attachments</title><body style="margin:0;padding:18px;background:#111">${body}</body>`);
+}
+
+// Static HTML snippet for a module's attachment picker — insert once inside that module's modal.
+function attachPickerHTML(key){
+  return `<div class="form-group">
+    <label class="form-label">📎 Attachments</label>
+    <div id="attach-strip-${key}" class="attach-strip"></div>
+    <div class="attach-btns">
+      <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-${key}').click()">🖼️ Photo</button>
+      <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-${key}').click()">📄 PDF</button>
+      <button type="button" class="attach-btn" onclick="captureScreenshot('${key}')">🖥️ Screenshot</button>
+    </div>
+    <input type="file" id="attach-img-${key}" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('${key}',this,'image')"/>
+    <input type="file" id="attach-pdf-${key}" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('${key}',this,'pdf')"/>
+  </div>`;
+}
+
 // ── MSAL ──
+// Clear any stuck "interaction in progress" flag left behind by a previous
+// sign-in attempt that got interrupted (closed popup, page reload, JS error, etc).
+// MSAL stores this in sessionStorage as msal.<clientId>.interaction.status and
+// will refuse any new login while it's set, even if nothing is actually running.
+function clearStuckMsalInteraction(){
+  try{
+    Object.keys(sessionStorage).forEach(k=>{
+      if(k.includes('interaction.status')) sessionStorage.removeItem(k);
+    });
+  }catch(e){}
+}
+
 function initMsal(){
   if(!MS_APP_ID||MS_APP_ID==='YOUR-AZURE-APP-ID-HERE')return;
+  clearStuckMsalInteraction();
   msalApp=new msal.PublicClientApplication({
     auth:{clientId:MS_APP_ID,authority:'https://login.microsoftonline.com/consumers',redirectUri:location.origin+location.pathname},
     cache:{cacheLocation:'localStorage'}
@@ -2035,6 +2318,7 @@ function initMsal(){
   });
 }
 
+let signingIn=false;
 async function signInOneDrive(){
   if(!MS_APP_ID){
     openModal('modal-setup');
@@ -2042,14 +2326,23 @@ async function signInOneDrive(){
     return;
   }
   if(!msalApp){toast('⏳ Still loading, try again');return;}
+  if(signingIn){toast('⏳ Sign-in already in progress');return;}
+  signingIn=true;
   showLoading('Opening Microsoft sign-in…');
   try{
     const r=await msalApp.loginPopup({scopes:OD_SCOPES});
     accessToken=r.accessToken;hideLoading();showUserAndDiaries();
   }catch(e){
     hideLoading();
-    if(e.errorCode==='popup_window_error'||e.errorCode==='empty_window_error'){msalApp.loginRedirect({scopes:OD_SCOPES});}
+    if(e.errorCode==='interaction_in_progress'){
+      // Stale lock from a previous interrupted attempt — clear it and let the user retry.
+      clearStuckMsalInteraction();
+      toast('⚠️ Cleared a stuck sign-in session — please tap Sign in again');
+    }
+    else if(e.errorCode==='popup_window_error'||e.errorCode==='empty_window_error'){msalApp.loginRedirect({scopes:OD_SCOPES});}
     else{toast('❌ Sign-in failed: '+e.message);console.error(e);}
+  }finally{
+    signingIn=false;
   }
 }
 
@@ -2187,7 +2480,7 @@ function autoSaveToLocalStorage(){ /* no-op */ }
 function loadFromLocalStorage(){ return null; }
 
 async function saveEntryAndDrive(){saveEntryInMemory();await saveToDrive();}
-function saveEntryInMemory(){const h=document.getElementById('diary-editor').innerHTML.trim();if(h){storage.entries[currentDate]={note:h};}else{delete storage.entries[currentDate];}dirty=false;renderCalHighlights();}
+function saveEntryInMemory(){const h=document.getElementById('diary-editor').innerHTML.trim();const atts=getAttachStage('diary');if(h||atts.length){storage.entries[currentDate]={note:h,attachments:atts};}else{delete storage.entries[currentDate];}dirty=false;renderCalHighlights();}
 function markDirty(){dirty=true;document.getElementById('save-status').textContent='Unsaved…';clearTimeout(autoSaveTimer);saveEntryInMemory();autoSaveTimer=setTimeout(saveEntryAndDrive,5000);}
 
 function createNewDiary(){['nd-name','nd-pw','nd-pw2'].forEach(id=>document.getElementById(id).value='');openModal('modal-new-diary');}
@@ -2297,7 +2590,7 @@ function closeMoreMenu(){document.getElementById('more-menu').classList.remove('
 // ── FAB ──
 function fabAction(){
   if(currentPanel==='diary')return;
-  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';openModal('modal-task');return;}
+  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';initAttachUI('task',[]);openModal('modal-task');return;}
   if(currentPanel==='lists'){createChecklist();return;}
   if(currentPanel==='expenses'){
     editingExpenseId=null;
@@ -2308,11 +2601,12 @@ function fabAction(){
     document.getElementById('exp-mode').value='';
     setExpType('expense');
     renderExpChips();
+    initAttachUI('expense',[]);
     openModal('modal-expense');
     return;
   }
-  if(currentPanel==='contacts'){editingContactId=null;['contact-name','contact-phone','contact-email','contact-remark'].forEach(id=>document.getElementById(id).value='');openModal('modal-contact');return;}
-  if(currentPanel==='notes'){editingNoteId=null;document.getElementById('note-editor').innerHTML='';selectedNoteColor='#fff9c4';initNoteColorPicker();document.querySelectorAll('.color-swatch').forEach((s,i)=>s.classList.toggle('sel',i===0));openModal('modal-note');return;}
+  if(currentPanel==='contacts'){editingContactId=null;['contact-name','contact-phone','contact-email','contact-relation','contact-alias','contact-birthday','contact-remark'].forEach(id=>document.getElementById(id).value='');initAttachUI('contact',[]);openModal('modal-contact');return;}
+  if(currentPanel==='notes'){editingNoteId=null;document.getElementById('note-editor').innerHTML='';selectedNoteColor='#fff9c4';initNoteColorPicker();document.querySelectorAll('.color-swatch').forEach((s,i)=>s.classList.toggle('sel',i===0));initAttachUI('note',[]);openModal('modal-note');return;}
   if(currentPanel==='notebook'){openNewNotebookModal();return;}
   if(currentPanel==='projects'){openNewProjectModal();return;}
 }
@@ -2456,6 +2750,7 @@ function loadDiaryEntry(){
   chip.textContent='📅 '+fmtDate(currentDate)+(currentDate===todayStr()?' (Today)':'');
   const entry=storage.entries&&storage.entries[currentDate];
   document.getElementById('diary-editor').innerHTML=entry?entry.note:'';
+  initAttachUI('diary', entry?entry.attachments:[]);
   document.getElementById('save-status').textContent='Ready';
   dirty=false;
   // Show reminder banner only when viewing today
@@ -2488,6 +2783,7 @@ function renderTasks(){
         <div style="font-weight:600;font-size:15px;${t.done?'text-decoration:line-through':''}">${pMap[t.priority]||''} ${escH(t.text)}</div>
         ${t.due?`<div style="font-size:11px;color:${t.due<today&&!t.done?'var(--danger)':'var(--text-muted)'};font-family:monospace">📅 ${fmtDate(t.due)}</div>`:''}
         ${t.tags&&t.tags.length?`<div style="font-size:11px;color:var(--primary);margin-top:2px">${t.tags.map(g=>`#${g}`).join(' ')}</div>`:''}
+        ${t.attachments&&t.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="viewSavedAttachments(storage.todos.find(x=>x.id==='${t.id}').attachments)">📎 ${t.attachments.length} attached</div>`:''}
       </div>
       <div style="display:flex;gap:4px">
         <button class="icon-btn edit" onclick="editTask('${t.id}')">✏️</button>
@@ -2498,14 +2794,15 @@ function renderTasks(){
 }
 function setTaskFilter(f,el){taskFilter=f;document.querySelectorAll('#panel-tasks .pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderTasks();}
 function toggleTask(id){const t=storage.todos.find(x=>x.id===id);if(t){t.done=!t.done;vibrate(t.done?[10,30,10]:8);renderTasks();if(currentPanel==='diary')renderDueTasksWidget();saveToDrive();}}
-function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');openModal('modal-task');}
+function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');initAttachUI('task',t.attachments);openModal('modal-task');}
 function deleteTask(id){if(!confirm('Delete task?'))return;storage.todos=storage.todos.filter(x=>x.id!==id);renderTasks();saveToDrive();}
 function submitTask(){
   const text=document.getElementById('task-desc').value.trim();if(!text)return toast('Enter task description');
   const due=document.getElementById('task-due').value,priority=document.getElementById('task-priority').value;
   const tags=document.getElementById('task-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
-  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;}}
-  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr()});}
+  const attachments=getAttachStage('task');
+  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;t.attachments=attachments;}}
+  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr(),attachments});}
   closeModal('modal-task');renderTasks();saveToDrive();
 }
 
@@ -2531,6 +2828,7 @@ function renderChecklists(){
         <div class="cl-item${item.done?' done':''}">
           <input type="checkbox" ${item.done?'checked':''} onchange="toggleCLItem('${l.id}','${item.id}')"/>
           <span style="flex:1">${escH(item.text)}</span>
+          ${item.attachments&&item.attachments.length?`<span onclick="viewSavedAttachments(storage.lists.find(x=>x.id==='${l.id}').items.find(i=>i.id==='${item.id}').attachments)" style="cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600">📎${item.attachments.length}</span>`:''}
           <button class="icon-btn" onclick="deleteCLItem('${l.id}','${item.id}')" style="padding:4px 6px;font-size:12px">✕</button>
         </div>`).join('')}
       <div style="display:flex;gap:8px;margin-top:10px">
@@ -2578,9 +2876,9 @@ function toggleCLItem(lid,iid){const l=storage.lists.find(x=>x.id===lid);if(!l)r
 function deleteCLItem(lid,iid){const l=storage.lists.find(x=>x.id===lid);if(!l)return;l.items=l.items.filter(x=>x.id!==iid);renderChecklists();saveToDrive();}
 // ── CHECKLIST MODAL ITEM ADD (modal-cli) ──
 let _currentCLListId=null;
-function openCLIModal(lid){_currentCLListId=lid;document.getElementById('cli-text').value='';openModal('modal-cli');setTimeout(()=>document.getElementById('cli-text').focus(),200);}
-function submitCLI(){const text=document.getElementById('cli-text').value.trim();if(!text||!_currentCLListId)return;addCLItemDirect(_currentCLListId,text);closeModal('modal-cli');}
-function addCLItemDirect(lid,text){const l=storage.lists.find(x=>x.id===lid);if(l){l.items.push({id:uuid(),text,done:false});}renderChecklists();saveToDrive();}
+function openCLIModal(lid){_currentCLListId=lid;document.getElementById('cli-text').value='';initAttachUI('cli',[]);openModal('modal-cli');setTimeout(()=>document.getElementById('cli-text').focus(),200);}
+function submitCLI(){const text=document.getElementById('cli-text').value.trim();if(!text||!_currentCLListId)return;addCLItemDirect(_currentCLListId,text,getAttachStage('cli'));closeModal('modal-cli');}
+function addCLItemDirect(lid,text,attachments){const l=storage.lists.find(x=>x.id===lid);if(l){l.items.push({id:uuid(),text,done:false,attachments:attachments||[]});}renderChecklists();saveToDrive();}
 
 // ── EXPENSES ──
 let currentExpTab='list';
@@ -2614,6 +2912,7 @@ function renderExpenses(){
         <div style="font-weight:600;font-size:14px">${escH(e.category||'—')}</div>
         <div style="font-size:11px;color:var(--text-muted)">${fmtDate(e.date)} · ${escH(e.mode||'')}${e.account?' · '+escH(e.account):''}</div>
         ${e.note?`<div style="font-size:12px;color:var(--text-mid);margin-top:2px">${escH(e.note)}</div>`:''}
+        ${e.attachments&&e.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="viewSavedAttachments(storage.expenses.find(x=>x.id==='${e.id}').attachments)">📎 ${e.attachments.length} attached</div>`:''}
       </div>
       <div style="font-weight:700;font-size:16px;color:${parseFloat(e.amount)>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(parseFloat(e.amount)).toFixed(0)}</div>
       <div style="display:flex;gap:4px">
@@ -2716,6 +3015,7 @@ function editExpense(id){
   document.getElementById('exp-account').value=e.account||'';
   document.getElementById('exp-remark').value=e.note||'';
   renderExpChips();
+  initAttachUI('expense',e.attachments);
   openModal('modal-expense');
 }
 function deleteExpense(id){if(!confirm('Delete?'))return;storage.expenses=storage.expenses.filter(x=>x.id!==id);renderExpenses();saveToDrive();}
@@ -2742,8 +3042,9 @@ function submitExpense(){
   if(cat&&!sl.cats.includes(cat))sl.cats.push(cat);
   if(mode&&!sl.modes.includes(mode))sl.modes.push(mode);
   if(acc&&!sl.accs.includes(acc))sl.accs.push(acc);
-  if(editingExpenseId){const e=storage.expenses.find(x=>x.id===editingExpenseId);if(e)Object.assign(e,{date,category:cat,amount:amt,mode,account:acc,note});}
-  else storage.expenses.push({id:uuid(),date,category:cat,amount:amt,mode,account:acc,note});
+  const attachments=getAttachStage('expense');
+  if(editingExpenseId){const e=storage.expenses.find(x=>x.id===editingExpenseId);if(e)Object.assign(e,{date,category:cat,amount:amt,mode,account:acc,note,attachments});}
+  else storage.expenses.push({id:uuid(),date,category:cat,amount:amt,mode,account:acc,note,attachments});
   closeModal('modal-expense');renderExpenses();saveToDrive();
 }
 
@@ -2845,16 +3146,19 @@ function deleteManageItem(i){
 // ── CONTACTS ──
 function renderContacts(){
   const q=(document.getElementById('contact-search')?.value||'').toLowerCase();
-  let cs=(storage.contacts||[]).filter(c=>!q||c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q));
+  let cs=(storage.contacts||[]).filter(c=>!q||c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q)||(c.relation||'').toLowerCase().includes(q)||(c.alias||'').toLowerCase().includes(q));
   cs=[...cs].sort((a,b)=>a.name.localeCompare(b.name));
   document.getElementById('contacts-list').innerHTML=cs.length?cs.map(c=>`
     <div class="card" style="display:flex;align-items:center;gap:12px">
       <div style="width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">${escH((c.name||'?')[0].toUpperCase())}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:14px">${escH(c.name)}</div>
+        <div style="font-weight:700;font-size:14px">${escH(c.name)}${c.alias?` <span style="font-weight:500;color:var(--text-muted)">“${escH(c.alias)}”</span>`:''}</div>
+        ${c.relation?`<div style="font-size:11px;color:var(--primary);font-weight:600">${escH(c.relation)}</div>`:''}
         ${c.phone?`<div style="font-size:12px;color:var(--text-muted)">📞 ${escH(c.phone)}</div>`:''}
         ${c.email?`<div style="font-size:12px;color:var(--text-muted)">✉️ ${escH(c.email)}</div>`:''}
+        ${c.birthday?`<div style="font-size:12px;color:var(--text-muted)">🎂 ${fmtDate(c.birthday)}</div>`:''}
         ${c.note?`<div style="font-size:12px;color:var(--text-mid);margin-top:2px">${escH(c.note)}</div>`:''}
+        ${c.attachments&&c.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="viewSavedAttachments(storage.contacts.find(x=>x.id==='${c.id}').attachments)">📎 ${c.attachments.length} attached</div>`:''}
       </div>
       <div style="display:flex;gap:4px">
         <button class="icon-btn edit" onclick="editContact('${c.id}')">✏️</button>
@@ -2862,14 +3166,87 @@ function renderContacts(){
       </div>
     </div>`).join(''):`<div class="empty"><div class="empty-icon">📇</div><p>No contacts</p></div>`;
 }
-function editContact(id){const c=storage.contacts.find(x=>x.id===id);if(!c)return;editingContactId=id;document.getElementById('contact-name').value=c.name;document.getElementById('contact-phone').value=c.phone||'';document.getElementById('contact-email').value=c.email||'';document.getElementById('contact-remark').value=c.note||'';openModal('modal-contact');}
+function editContact(id){const c=storage.contacts.find(x=>x.id===id);if(!c)return;editingContactId=id;document.getElementById('contact-name').value=c.name;document.getElementById('contact-phone').value=c.phone||'';document.getElementById('contact-email').value=c.email||'';document.getElementById('contact-relation').value=c.relation||'';document.getElementById('contact-alias').value=c.alias||'';document.getElementById('contact-birthday').value=c.birthday||'';document.getElementById('contact-remark').value=c.note||'';initAttachUI('contact',c.attachments);openModal('modal-contact');}
 function deleteContact(id){if(!confirm('Delete contact?'))return;storage.contacts=storage.contacts.filter(x=>x.id!==id);renderContacts();saveToDrive();}
 function submitContact(){
   const name=document.getElementById('contact-name').value.trim();if(!name)return toast('Enter name');
   const phone=document.getElementById('contact-phone').value.trim(),email=document.getElementById('contact-email').value.trim(),note=document.getElementById('contact-remark').value.trim();
-  if(editingContactId){const c=storage.contacts.find(x=>x.id===editingContactId);if(c)Object.assign(c,{name,phone,email,note});}
-  else{storage.contacts.push({id:uuid(),name,phone,email,note});}
+  const relation=document.getElementById('contact-relation').value.trim(),alias=document.getElementById('contact-alias').value.trim(),birthday=document.getElementById('contact-birthday').value||'';
+  const attachments=getAttachStage('contact');
+  if(editingContactId){const c=storage.contacts.find(x=>x.id===editingContactId);if(c)Object.assign(c,{name,phone,email,relation,alias,birthday,note,attachments});}
+  else{storage.contacts.push({id:uuid(),name,phone,email,relation,alias,birthday,note,attachments});}
   closeModal('modal-contact');renderContacts();saveToDrive();
+}
+
+// ── CONTACT EXCEL/CSV IMPORT ──
+function downloadContactTemplate(){
+  const headers=['Name','Phone','Email','Relation','Alias','Birthday','Remark'];
+  const sample=['Jane Doe','+91 98765 43210','jane@example.com','Friend','Janie','1990-05-14','Met at college'];
+  const csv=[headers.join(','), sample.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')].join('\n');
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  const a=document.createElement('a'); a.href=url; a.download='contacts_template.csv'; a.click();
+  URL.revokeObjectURL(url);
+  toast('⬇️ Template downloaded');
+}
+
+async function handleContactImportFile(inputEl){
+  const file=inputEl.files&&inputEl.files[0]; inputEl.value='';
+  if(!file) return;
+  if(typeof XLSX==='undefined'){toast('⏳ Import library still loading, try again in a moment');return;}
+  showLoading('Reading file…');
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const sheet=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(sheet,{defval:''});
+    if(!rows.length){toast('⚠️ No rows found in that file');return;}
+
+    const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    const FIELD_MAP={
+      name:['name','fullname','contactname'],
+      phone:['phone','mobile','phonenumber','contactnumber','mobileno','cell','cellphone'],
+      email:['email','emailaddress','mail'],
+      relation:['relation','relationship'],
+      alias:['alias','nickname','nick'],
+      birthday:['birthday','dob','dateofbirth','birthdate'],
+      note:['note','notes','remark','remarks']
+    };
+    function pick(row,field){
+      for(const k of Object.keys(row)){
+        if(FIELD_MAP[field].includes(norm(k))) return String(row[k]==null?'':row[k]).trim();
+      }
+      return '';
+    }
+
+    storage.contacts=storage.contacts||[];
+    let added=0, skipped=0;
+    rows.forEach(row=>{
+      const name=pick(row,'name');
+      if(!name){skipped++;return;}
+      let birthday=pick(row,'birthday');
+      // Excel gives raw date cells as serial numbers — convert those to YYYY-MM-DD
+      if(birthday && /^\d+(\.\d+)?$/.test(birthday) && window.XLSX?.SSF){
+        const d=XLSX.SSF.parse_date_code(parseFloat(birthday));
+        if(d) birthday=`${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+      }
+      storage.contacts.push({
+        id:uuid(), name,
+        phone:pick(row,'phone'), email:pick(row,'email'),
+        relation:pick(row,'relation'), alias:pick(row,'alias'),
+        birthday, note:pick(row,'note'), attachments:[]
+      });
+      added++;
+    });
+
+    renderContacts();
+    saveToDrive();
+    toast(`✅ Imported ${added} contact${added===1?'':'s'}${skipped?`, skipped ${skipped} (missing name)`:''}`);
+  }catch(e){
+    console.error(e);
+    toast('❌ Import failed: '+e.message);
+  }finally{
+    hideLoading();
+  }
 }
 
 // ── STICKY NOTES ──
@@ -2887,13 +3264,14 @@ function renderNotes(){
       </div>
     </div>`).join(''):`<div class="empty" style="grid-column:1/-1"><div class="empty-icon">📌</div><p>No sticky notes</p></div>`;
 }
-function editNote(id){const n=storage.sticky_notes.find(x=>x.id===id);if(!n)return;initNoteColorPicker();editingNoteId=id;document.getElementById('note-editor').innerHTML=n.text;selectedNoteColor=n.color||'#fff9c4';document.querySelectorAll('.color-swatch').forEach(s=>s.classList.toggle('sel',s.dataset.color===selectedNoteColor));openModal('modal-note');}
+function editNote(id){const n=storage.sticky_notes.find(x=>x.id===id);if(!n)return;initNoteColorPicker();editingNoteId=id;document.getElementById('note-editor').innerHTML=n.text;selectedNoteColor=n.color||'#fff9c4';document.querySelectorAll('.color-swatch').forEach(s=>s.classList.toggle('sel',s.dataset.color===selectedNoteColor));initAttachUI('note',n.attachments);openModal('modal-note');}
 function deleteNote(id){if(!confirm('Delete note?'))return;storage.sticky_notes=storage.sticky_notes.filter(x=>x.id!==id);renderNotes();saveToDrive();}
 function pickNoteColor(el,color){selectedNoteColor=color;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('sel'));el.classList.add('sel');}
 function submitNote(){
   const text=document.getElementById('note-editor').innerHTML.trim();if(!text||text==='<br>')return toast('Enter note text');
-  if(editingNoteId){const n=storage.sticky_notes.find(x=>x.id===editingNoteId);if(n){n.text=text;n.color=selectedNoteColor;}}
-  else{storage.sticky_notes.push({id:uuid(),text,color:selectedNoteColor,created:todayStr()});}
+  const attachments=getAttachStage('note');
+  if(editingNoteId){const n=storage.sticky_notes.find(x=>x.id===editingNoteId);if(n){n.text=text;n.color=selectedNoteColor;n.attachments=attachments;}}
+  else{storage.sticky_notes.push({id:uuid(),text,color:selectedNoteColor,created:todayStr(),attachments});}
   closeModal('modal-note');renderNotes();saveToDrive();
 }
 function noteCmd(cmd){document.execCommand(cmd,false,null);}
@@ -3094,6 +3472,7 @@ function addNbPage(nbId){
   editingNbNotebook=nbId;editingNbPage=null;
   document.getElementById('nb-page-name').value='';
   document.getElementById('nb-page-editor').innerHTML='';
+  initAttachUI('nbpage',[]);
   openModal('modal-nb-page');
   setTimeout(()=>document.getElementById('nb-page-name').focus(),200);
 }
@@ -3105,6 +3484,7 @@ function editNbPage(nbId,pageId){
   const p=nb.pages[pageId];
   document.getElementById('nb-page-name').value=p?.title||'';
   document.getElementById('nb-page-editor').innerHTML=p?.content||'';
+  initAttachUI('nbpage',p?.attachments);
   openModal('modal-nb-page');
   setTimeout(()=>document.getElementById('nb-page-name').focus(),100);
 }
@@ -3121,6 +3501,7 @@ function submitNbPage(){
   const existing=storage.notebooks[editingNbNotebook]?.pages[pid];
   storage.notebooks[editingNbNotebook].pages[pid]={
     title,content,
+    attachments:getAttachStage('nbpage'),
     created:existing?.created||now,
     modified:now
   };
@@ -3485,10 +3866,10 @@ function submitProject(){
 
   if(_editingProjId){
     const p = storage.projects.find(x=>x.id===_editingProjId);
-    if(p){ Object.assign(p, {name,desc,due,priority,status,category,color}); }
+    if(p){ Object.assign(p, {name,desc,due,priority,status,category,color,attachments:getAttachStage('project')}); }
   } else {
     if(!storage.projects) storage.projects = [];
-    storage.projects.push({id:uuid(),name,desc,due,priority,status,category,color,tasks:[],created:todayStr()});
+    storage.projects.push({id:uuid(),name,desc,due,priority,status,category,color,tasks:[],created:todayStr(),attachments:getAttachStage('project')});
   }
   _editingProjId = null;
   closeModal('modal-project');
@@ -3514,6 +3895,7 @@ function editProject(id){
   document.querySelectorAll('.proj-color-dot').forEach(d=>{
     d.classList.toggle('selected', d.dataset.color === (p.color||'#1a3a6b'));
   });
+  initAttachUI('project',p.attachments);
   openModal('modal-project');
 }
 
@@ -3527,6 +3909,7 @@ function openNewProjectModal(){
   document.getElementById('proj-status').value = 'active';
   document.getElementById('proj-color').value = '#1a3a6b';
   document.querySelectorAll('.proj-color-dot').forEach((d,i)=>d.classList.toggle('selected',i===0));
+  initAttachUI('project',[]);
   openModal('modal-project');
 }
 
@@ -3545,7 +3928,6 @@ function deleteProject(id){
 }
 
 // ─── Task CRUD ───
-let editingProjProj = null;
 let editingProjTask = null;
 
 function openAddProjTask(pid){
@@ -3555,6 +3937,7 @@ function openAddProjTask(pid){
   ['ptask-text','ptask-details','ptask-due','ptask-assignee'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('ptask-priority').value = 'normal';
   document.getElementById('subtask-fields').innerHTML = '';
+  initAttachUI('ptask',[]);
   openModal('modal-proj-task');
   setTimeout(()=>document.getElementById('ptask-text').focus(),200);
 }
@@ -3576,6 +3959,7 @@ function openEditProjTask(pid,tid){
   const sf = document.getElementById('subtask-fields');
   sf.innerHTML = '';
   (t.subtasks||[]).forEach(s=>addSubtaskField(s.text, s.done));
+  initAttachUI('ptask',t.attachments);
   openModal('modal-proj-task');
 }
 
@@ -3608,9 +3992,9 @@ function submitProjTask(){
 
   if(editingProjTask){
     const t = p.tasks.find(x=>x.id===editingProjTask);
-    if(t){ Object.assign(t,{text,details,due,priority,assignee,subtasks}); }
+    if(t){ Object.assign(t,{text,details,due,priority,assignee,subtasks,attachments:getAttachStage('ptask')}); }
   } else {
-    p.tasks.push({id:uuid(),text,details,due,priority,assignee,subtasks,done:false,created:todayStr()});
+    p.tasks.push({id:uuid(),text,details,due,priority,assignee,subtasks,done:false,created:todayStr(),attachments:getAttachStage('ptask')});
   }
   closeModal('modal-proj-task');
   renderProjects();
