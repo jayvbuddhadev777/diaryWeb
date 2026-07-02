@@ -949,6 +949,8 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 </style>
 </head>
 <body>
+<div id="brand-mark" style="position:fixed;bottom:6px;right:10px;z-index:10000;font-size:10.5px;color:var(--text-muted);opacity:0.55;pointer-events:none;font-family:'DM Sans',sans-serif;letter-spacing:0.2px">Priyansh Technologies © 2026</div>
+
 <script>(function(){try{var t=localStorage.getItem('sd_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
 
 <!-- ══════════════════════════════════════════
@@ -1045,6 +1047,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         </div>
       </div>
       <div class="drawer-section" style="margin-top:auto;padding-bottom:16px">
+        <div class="drawer-item" onclick="requestLockOnly()"><span class="drawer-item-icon">🔐</span>Lock</div>
         <div class="drawer-item" onclick="lockDiary()" style="color:rgba(255,100,100,0.9)"><span class="drawer-item-icon">🔒</span>Lock & Exit</div>
       </div>
     </div>
@@ -1078,6 +1081,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         <div class="card" style="background:linear-gradient(135deg,var(--primary),var(--primary-mid));color:#fff">
           <div style="font-family:'Fraunces',serif;font-size:19px;font-weight:700" id="dash-greeting">Hello</div>
           <div style="font-size:12.5px;opacity:0.85;margin-top:2px" id="dash-date"></div>
+          <div style="font-size:12.5px;opacity:0.9;margin-top:6px;display:none" id="dash-weather"></div>
         </div>
         <div class="stats-row" id="dash-stats"></div>
 
@@ -1143,7 +1147,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
           </div>
           <div id="due-tasks-list" style="display:flex;flex-direction:column;max-height:220px;overflow-y:auto"></div>
         </div>
-        <div class="date-chip" id="diary-date-chip">📅 Today</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="date-chip" id="diary-date-chip">📅 Today</div>
+          <div id="diary-weather-badge" style="display:none;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:600;color:var(--text-mid)"></div>
+        </div>
         <div style="display:flex;flex-direction:column;flex:1">
           <div class="editor-toolbar">
             <button class="fmt-btn" onclick="fmt('bold')"><b>B</b></button>
@@ -1509,9 +1516,24 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="more-item" onclick="downloadEncFile()"><span class="more-item-icon">⬇</span>Download .enc</div>
     <div class="more-item" onclick="exportJSON()"><span class="more-item-icon">📤</span>Export JSON</div>
     <div class="more-item" onclick="openAbout()"><span class="more-item-icon">ℹ</span>About</div>
-    <div class="more-item" onclick="lockDiary()" style="color:var(--danger)"><span class="more-item-icon">🔒</span>Lock Diary</div>
+    <div class="more-item" onclick="closeMoreMenu();requestLockOnly()"><span class="more-item-icon">🔐</span>Lock</div>
+    <div class="more-item" onclick="lockDiary()" style="color:var(--danger)"><span class="more-item-icon">🔒</span>Lock & Exit</div>
   </div>
 </div>
+
+<!-- QUICK LOCK SCREEN — blocks the app in-place; unlock with biometrics or PIN without re-signing in -->
+<div id="lock-screen" style="display:none;position:fixed;inset:0;z-index:9999;background:var(--bg);flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center">
+  <div style="font-size:52px;margin-bottom:14px">🔐</div>
+  <div style="font-family:'Fraunces',serif;font-size:20px;font-weight:700;margin-bottom:4px" id="lock-screen-name">Diary Locked</div>
+  <div style="font-size:13px;color:var(--text-muted);margin-bottom:26px">Unlock to continue where you left off</div>
+  <button type="button" class="btn btn-primary" id="lock-screen-bio-btn" style="display:none;width:240px;margin-bottom:12px" onclick="tryBiometricUnlock()">🫆 Unlock with Face/Touch ID</button>
+  <div id="lock-screen-pin-wrap" style="display:none;width:240px">
+    <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" class="form-input" id="lock-screen-pin-input" placeholder="Enter PIN" style="text-align:center;letter-spacing:6px;font-size:18px" onkeydown="if(event.key==='Enter')submitLockScreenPin()"/>
+    <div id="lock-screen-pin-error" style="display:none;color:var(--danger);font-size:12.5px;margin-top:6px">❌ Incorrect PIN</div>
+    <button type="button" class="btn btn-secondary" style="width:100%;margin-top:10px" onclick="submitLockScreenPin()">Unlock</button>
+  </div>
+</div>
+
 
 <!-- ══════════════════════════════════════ MODALS ══════════════════════════════════════ -->
 
@@ -1531,6 +1553,9 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div id="login-error" style="color:var(--danger);font-size:13px;display:none;margin-bottom:8px">❌ Wrong password!</div>
     <div id="login-pin-link" style="display:none;text-align:center;margin-bottom:8px">
       <button type="button" onclick="startQuickPinUnlock()" style="background:none;border:none;color:var(--primary);font-weight:700;font-size:12.5px;cursor:pointer">🔓 Use Quick PIN instead</button>
+    </div>
+    <div style="text-align:center;margin-bottom:8px">
+      <button type="button" onclick="openRecoveryFromLogin('drive')" style="background:none;border:none;color:var(--text-muted);font-weight:700;font-size:12px;cursor:pointer;text-decoration:underline">Forgot password? Use recovery key</button>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-login')">Cancel</button>
@@ -2153,6 +2178,33 @@ Web Version Diary !
       <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">Stores an encrypted copy of your diary password on THIS device only, unlocked with a short PIN so you don't have to type your full password every time. Your diary is still fully encrypted with your real password.</div>
     </div>
 
+    <div class="form-group">
+      <label class="form-label">🫆 Biometric Unlock</label>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px" id="settings-bio-box">
+        <!-- filled by refreshSettingsModal() -->
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">Use Face ID / Touch ID / device unlock instead of a PIN, on this device. Needed (along with or instead of a Quick PIN) to use the "Lock" option below.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">🗝️ Recovery Key</label>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px" id="settings-recovery-box">
+        <!-- filled by refreshSettingsModal() -->
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">A one-time key that can unlock this diary and let you set a new password if you ever forget it. Generating a new key replaces the old one.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">🌦️ Weather Auto-Log</label>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;font-weight:600">Log weather &amp; location on entries</span>
+          <button class="btn btn-secondary btn-sm" id="settings-weather-btn" onclick="settingsToggleWeather()">Enable</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">Quietly attaches today's weather and approximate location to each diary entry, so it's there when you read back later. Uses your device's location once a day; nothing is sent anywhere except free weather/location lookups.</div>
+      </div>
+    </div>
+
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-settings')">Close</button></div>
   </div>
 </div>
@@ -2218,9 +2270,74 @@ Web Version Diary !
       </div>
     </div>
     <div id="local-login-error" style="color:var(--danger);font-size:13px;display:none;margin-bottom:8px">❌ Wrong password!</div>
+    <div style="text-align:center;margin-bottom:8px">
+      <button type="button" onclick="openRecoveryFromLogin('local')" style="background:none;border:none;color:var(--text-muted);font-weight:700;font-size:12px;cursor:pointer;text-decoration:underline">Forgot password? Use recovery key</button>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-local-login')">Cancel</button>
       <button class="btn btn-primary" onclick="submitLocalLogin()">🔓 Unlock</button>
+    </div>
+  </div>
+</div>
+
+<!-- Recovery key entry -->
+<div class="modal-overlay" id="modal-recovery">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>🗝️ Recovery Key</h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Enter the recovery key you saved when this diary was created (or when you last set one up).</p>
+    <div class="form-group">
+      <label class="form-label">Recovery Key</label>
+      <input type="text" class="form-input" id="recovery-key-input" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" style="font-family:'JetBrains Mono',monospace;letter-spacing:1px;text-transform:uppercase" oninput="onRecoveryKeyInput(this)" onkeydown="if(event.key==='Enter')submitRecoveryKey()"/>
+    </div>
+    <div id="recovery-error" style="color:var(--danger);font-size:13px;display:none;margin-bottom:8px">❌ Invalid recovery key.</div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-recovery')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitRecoveryKey()">Verify</button>
+    </div>
+  </div>
+</div>
+
+<!-- Set new password after recovery -->
+<div class="modal-overlay" id="modal-recovery-newpw">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>🔑 Set a New Password</h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Your recovery key worked! Choose a new password for this diary — your recovery key will keep working afterward.</p>
+    <div class="form-group">
+      <label class="form-label">New Password</label>
+      <div class="pw-wrap">
+        <input type="password" class="form-input" id="rk-newpw" placeholder="Strong password"/>
+        <button type="button" class="pw-toggle" onclick="togglePw('rk-newpw',this)" tabindex="-1">👁</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirm Password</label>
+      <div class="pw-wrap">
+        <input type="password" class="form-input" id="rk-newpw2" placeholder="Confirm"/>
+        <button type="button" class="pw-toggle" onclick="togglePw('rk-newpw2',this)" tabindex="-1">👁</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" style="width:100%" onclick="submitRecoveryNewPassword()">Save New Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- Show recovery key (creation / regeneration) -->
+<div class="modal-overlay" id="modal-show-recovery">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>🗝️ Your Recovery Key</h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Save this somewhere safe (password manager, printed note). It's the <b>only</b> way back into this diary if you forget your password. It won't be shown again.</p>
+    <div style="background:var(--surface2);border:1.5px dashed var(--primary);border-radius:var(--radius);padding:16px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;letter-spacing:1px;word-break:break-all;color:var(--primary)" id="show-recovery-key-text"></div>
+    <button type="button" class="btn btn-secondary" style="margin-top:10px" onclick="copyRecoveryKey()">📋 Copy Key</button>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:16px;font-size:12.5px;color:var(--text-mid);cursor:pointer">
+      <input type="checkbox" id="show-recovery-ack" style="width:16px;height:16px" onchange="document.getElementById('show-recovery-done-btn').disabled=!this.checked"/>
+      I've saved my recovery key somewhere safe
+    </label>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="show-recovery-done-btn" disabled onclick="closeModal('modal-show-recovery')">Done</button>
     </div>
   </div>
 </div>
@@ -2314,6 +2431,259 @@ async function decryptData(ab, pw){
     }catch(e){ /* try next */ }
   }
   throw new Error('Decryption failed — wrong password or unsupported format');
+}
+
+// ── RECOVERY KEY CONTAINER FORMAT ──
+// A .enc file can either be:
+//   (a) legacy raw format: salt(16)+iv(12)+ciphertext  — decrypted only with the password
+//   (b) container format: MAGIC(4) + version(1) + flags(1) + mainLen(4,u32be) + mainBlob
+//       + [recLen(4,u32be) + recoveryBlob] if flags bit0 set.
+//       mainBlob/recoveryBlob are each in the legacy raw format above, just independently
+//       encrypted — mainBlob with the diary password, recoveryBlob with the recovery key.
+// This keeps every existing .enc file readable (unpackContainer falls back to legacy),
+// while letting new/updated diaries carry an independent recovery-unlockable copy.
+const RC_MAGIC=[0x53,0x44,0x52,0x43]; // "SDRC"
+function u32be(n){return new Uint8Array([(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255]);}
+function readU32be(b,off){return ((b[off]<<24)|(b[off+1]<<16)|(b[off+2]<<8)|b[off+3])>>>0;}
+
+function packContainer(mainAB, recoveryAB){
+  const main=new Uint8Array(mainAB);
+  const hasRec=!!recoveryAB;
+  const rec=hasRec?new Uint8Array(recoveryAB):null;
+  const headerLen=4+1+1+4;
+  const total=headerLen+main.length+(hasRec?4+rec.length:0);
+  const out=new Uint8Array(total);
+  let o=0;
+  out.set(RC_MAGIC,o);o+=4;
+  out[o++]=1; // version
+  out[o++]=hasRec?1:0; // flags
+  out.set(u32be(main.length),o);o+=4;
+  out.set(main,o);o+=main.length;
+  if(hasRec){ out.set(u32be(rec.length),o);o+=4; out.set(rec,o);o+=rec.length; }
+  return out.buffer;
+}
+
+function unpackContainer(ab){
+  const b=new Uint8Array(ab);
+  if(b.length>10 && b[0]===RC_MAGIC[0]&&b[1]===RC_MAGIC[1]&&b[2]===RC_MAGIC[2]&&b[3]===RC_MAGIC[3]){
+    const flags=b[5];
+    const mainLen=readU32be(b,6);
+    let o=10;
+    const mainAB=b.slice(o,o+mainLen).buffer; o+=mainLen;
+    let recoveryAB=null;
+    if(flags&1){ const recLen=readU32be(b,o); o+=4; recoveryAB=b.slice(o,o+recLen).buffer; o+=recLen; }
+    return {hasRecovery:!!recoveryAB, mainAB, recoveryAB};
+  }
+  return {hasRecovery:false, mainAB:ab, recoveryAB:null};
+}
+
+// Unambiguous alphabet (no 0/O/1/I/L) for a key people will hand-copy.
+const RC_ALPHABET='ABCDEFGHJKMNPQRSTVWXYZ23456789';
+function generateRecoveryKey(){
+  const groups=[];
+  for(let g=0;g<5;g++){
+    const rnd=crypto.getRandomValues(new Uint8Array(4));
+    let s='';
+    for(let i=0;i<4;i++)s+=RC_ALPHABET[rnd[i]%RC_ALPHABET.length];
+    groups.push(s);
+  }
+  return groups.join('-');
+}
+function normalizeRecoveryKeyInput(s){ return (s||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,20).replace(/(.{4})(?=.)/g,'$1-'); }
+function onRecoveryKeyInput(el){ const pos=el.selectionStart;el.value=normalizeRecoveryKeyInput(el.value); }
+
+// Session-only (never persisted): the recovery key, once known this session, so
+// every save can keep an up-to-date recovery snapshot alongside the password blob.
+let currentRecoveryKey=null;
+// Raw (still-encrypted) recovery blob last seen for this diary — kept so a save
+// made without the recovery key in memory doesn't silently drop the old recovery copy.
+let lastRecoveryBlobRaw=null;
+
+// Builds the bytes to actually write to disk/OneDrive for the current `storage`.
+async function buildSaveBlob(){
+  const mainAB=await encryptData(JSON.stringify(storage),currentPassword);
+  if(currentRecoveryKey){
+    const recAB=await encryptData(JSON.stringify(storage),currentRecoveryKey);
+    lastRecoveryBlobRaw=recAB;
+    return packContainer(mainAB,recAB);
+  }
+  if(lastRecoveryBlobRaw){
+    return packContainer(mainAB,lastRecoveryBlobRaw);
+  }
+  return mainAB;
+}
+
+function showRecoveryKeyModal(key){
+  document.getElementById('show-recovery-key-text').textContent=key;
+  document.getElementById('show-recovery-ack').checked=false;
+  document.getElementById('show-recovery-done-btn').disabled=true;
+  openModal('modal-show-recovery');
+}
+function copyRecoveryKey(){
+  const key=document.getElementById('show-recovery-key-text').textContent;
+  navigator.clipboard.writeText(key).then(()=>toast('📋 Copied!')).catch(()=>toast('Copy: '+key));
+}
+
+// Adds (or regenerates) a recovery key for the diary currently open in this session.
+async function addRecoveryKeyToCurrentDiary(){
+  if(!storage||!currentPassword){toast('Open your diary first');return;}
+  const hasExisting=!!(currentRecoveryKey||lastRecoveryBlobRaw);
+  if(hasExisting && !confirm('This generates a NEW recovery key and permanently retires the old one. Continue?'))return;
+  closeModal('modal-settings');
+  showLoading('Generating recovery key…');
+  try{
+    const newKey=generateRecoveryKey();
+    currentRecoveryKey=newKey;
+    await saveToDrive(); // buildSaveBlob() picks up currentRecoveryKey and saves the container
+    hideLoading();
+    showRecoveryKeyModal(newKey);
+  }catch(e){hideLoading();toast('❌ '+e.message);}
+}
+
+// ── FORGOT-PASSWORD FLOW (via recovery key) ──
+let recoveryContext=null; // 'drive' | 'local'
+function openRecoveryFromLogin(ctx){
+  recoveryContext=ctx;
+  document.getElementById('recovery-key-input').value='';
+  document.getElementById('recovery-error').style.display='none';
+  closeModal(ctx==='drive'?'modal-login':'modal-local-login');
+  openModal('modal-recovery');
+  setTimeout(()=>document.getElementById('recovery-key-input').focus(),300);
+}
+async function submitRecoveryKey(){
+  const key=document.getElementById('recovery-key-input').value.trim();
+  if(!key)return;
+  document.getElementById('recovery-error').style.display='none';
+  showLoading('Checking recovery key…');
+  try{
+    let ab;
+    if(recoveryContext==='drive'){
+      if(!selectedDriveFile)throw new Error('No diary selected');
+      const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+selectedDriveFile.id+'/content',{headers:{Authorization:'Bearer '+accessToken}});
+      if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
+      ab=await r.arrayBuffer();
+    }else{
+      if(!localEncFile)throw new Error('No file selected');
+      ab=await localEncFile.arrayBuffer();
+    }
+    const {hasRecovery,recoveryAB}=unpackContainer(ab);
+    if(!hasRecovery){hideLoading();toast('⚠️ This diary has no recovery key set up.');return;}
+    let json;
+    try{ json=await decryptData(recoveryAB,key); }
+    catch(e){ hideLoading();document.getElementById('recovery-error').style.display='block';return; }
+    storage=JSON.parse(json);
+    normalizeStorage();
+    currentRecoveryKey=key;
+    lastRecoveryBlobRaw=recoveryAB;
+    currentDiaryName=(recoveryContext==='drive'?selectedDriveFile.name:localEncFile.name).replace('.enc','');
+    driveFileId=recoveryContext==='drive'?selectedDriveFile.id:null;
+    isOfflineMode=recoveryContext==='local';
+    hideLoading();
+    closeModal('modal-recovery');
+    document.getElementById('rk-newpw').value='';document.getElementById('rk-newpw2').value='';
+    openModal('modal-recovery-newpw');
+  }catch(e){hideLoading();toast('❌ '+e.message);}
+}
+async function submitRecoveryNewPassword(){
+  const pw=document.getElementById('rk-newpw').value,pw2=document.getElementById('rk-newpw2').value;
+  if(pw.length<4)return toast('Password too short');
+  if(pw!==pw2)return toast('Passwords mismatch');
+  currentPassword=pw;
+  closeModal('modal-recovery-newpw');
+  showLoading('Saving new password…');
+  try{
+    await saveToDrive();
+    hideLoading();
+    toast(isOfflineMode?'✅ Password reset — use ⬇ Download .enc to save this file':'✅ Password reset! Your recovery key still works.');
+    launchApp();
+  }catch(e){hideLoading();toast('❌ '+e.message);}
+}
+
+// ── WEATHER AUTO-LOG ──
+// Silently attaches today's weather + approximate location to diary entries.
+// Uses Open-Meteo (no API key) for weather and BigDataCloud's free reverse-geocoding
+// endpoint for a human-readable place name. Opt-out via Settings (on by default).
+const WEATHER_CODE_MAP={
+  0:{d:'Clear sky',i:'☀️'},1:{d:'Mainly clear',i:'🌤️'},2:{d:'Partly cloudy',i:'⛅'},3:{d:'Overcast',i:'☁️'},
+  45:{d:'Fog',i:'🌫️'},48:{d:'Rime fog',i:'🌫️'},
+  51:{d:'Light drizzle',i:'🌦️'},53:{d:'Drizzle',i:'🌦️'},55:{d:'Dense drizzle',i:'🌧️'},
+  56:{d:'Freezing drizzle',i:'🌧️'},57:{d:'Freezing drizzle',i:'🌧️'},
+  61:{d:'Light rain',i:'🌧️'},63:{d:'Rain',i:'🌧️'},65:{d:'Heavy rain',i:'🌧️'},
+  66:{d:'Freezing rain',i:'🌧️'},67:{d:'Freezing rain',i:'🌧️'},
+  71:{d:'Light snow',i:'🌨️'},73:{d:'Snow',i:'🌨️'},75:{d:'Heavy snow',i:'❄️'},77:{d:'Snow grains',i:'❄️'},
+  80:{d:'Rain showers',i:'🌦️'},81:{d:'Rain showers',i:'🌧️'},82:{d:'Violent showers',i:'⛈️'},
+  85:{d:'Snow showers',i:'🌨️'},86:{d:'Snow showers',i:'❄️'},
+  95:{d:'Thunderstorm',i:'⛈️'},96:{d:'Thunderstorm + hail',i:'⛈️'},99:{d:'Thunderstorm + hail',i:'⛈️'}
+};
+function weatherDesc(code){return WEATHER_CODE_MAP[code]||{d:'',i:'🌡️'};}
+function weatherEnabled(){ return localStorage.getItem('sd_weather_enabled')!=='0'; } // opt-out, on by default
+function setWeatherEnabled(v){ localStorage.setItem('sd_weather_enabled', v?'1':'0'); }
+
+let _todayWeatherCache=null; // {date,data} — avoids refetching repeatedly within a session
+let _weatherFetchInFlight=false;
+// Holds a freshly-fetched weather snapshot for `currentDate` until the entry is actually
+// saved (we don't want to create a phantom entry just because we fetched the weather).
+let pendingWeather=null;
+
+async function fetchWeatherForToday(){
+  if(!weatherEnabled())return null;
+  const today=todayStr();
+  if(_todayWeatherCache && _todayWeatherCache.date===today) return _todayWeatherCache.data;
+  if(!navigator.geolocation) return null;
+  try{
+    const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:8000,maximumAge:3600000}));
+    const lat=pos.coords.latitude,lon=pos.coords.longitude;
+    const [wxRes,geoRes]=await Promise.allSettled([
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weathercode,relative_humidity_2m&temperature_unit=celsius`),
+      fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
+    ]);
+    let temp=null,code=null,humidity=null,place=null;
+    if(wxRes.status==='fulfilled'&&wxRes.value.ok){
+      const wj=await wxRes.value.json();
+      if(wj.current){temp=wj.current.temperature_2m;code=wj.current.weathercode;humidity=wj.current.relative_humidity_2m;}
+    }
+    if(geoRes.status==='fulfilled'&&geoRes.value.ok){
+      const gj=await geoRes.value.json();
+      place=[gj.city||gj.locality,gj.principalSubdivision].filter(Boolean).join(', ');
+    }
+    if(temp===null&&!place)return null;
+    const data={temp,code,humidity,place,loggedAt:Date.now()};
+    _todayWeatherCache={date:today,data};
+    return data;
+  }catch(e){ console.warn('Weather auto-log skipped:',e.message); return null; }
+}
+
+// Quietly fetches + caches today's weather once per day (regardless of which panel
+// triggered it), attaching it to today's in-memory entry if one already exists so the
+// next autosave keeps it. Safe to call repeatedly — no-ops once today is logged.
+async function ensureTodayWeather(){
+  const today=todayStr();
+  if(!weatherEnabled())return null;
+  const existing=storage.entries&&storage.entries[today];
+  if(existing&&existing.weather)return existing.weather;
+  if(pendingWeather&&pendingWeather.date===today)return pendingWeather.data;
+  if(_weatherFetchInFlight)return null;
+  _weatherFetchInFlight=true;
+  const data=await fetchWeatherForToday();
+  _weatherFetchInFlight=false;
+  if(data){
+    pendingWeather={date:today,data};
+    if(storage.entries[today])storage.entries[today].weather=data;
+    if(currentDate===today)renderWeatherBadge(data);
+    if(currentPanel==='dashboard')renderDashboard();
+  }
+  return data;
+}
+// Called when the diary panel opens on today's date.
+function maybeLogWeather(){ if(currentDate===todayStr())ensureTodayWeather(); }
+
+function renderWeatherBadge(data){
+  const el=document.getElementById('diary-weather-badge');
+  if(!el)return;
+  if(!data){el.style.display='none';el.innerHTML='';return;}
+  const w=weatherDesc(data.code);
+  el.style.display='inline-flex';
+  el.innerHTML=`${w.i} ${data.temp!=null?Math.round(data.temp)+'°C':''}${w.d?' · '+escH(w.d):''}${data.place?' · '+escH(data.place):''}`;
 }
 
 // ── ATTACHMENTS (image / PDF / screenshot) ──
@@ -2622,13 +2992,15 @@ async function submitLogin(){
   try{
     const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+selectedDriveFile.id+'/content',{headers:{Authorization:'Bearer '+accessToken}});
     if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
-    const ab=await r.arrayBuffer();
+    const raw=await r.arrayBuffer();
+    const {mainAB,recoveryAB}=unpackContainer(raw);
     let json;
-    try{ json=await decryptData(ab,pw); }
+    try{ json=await decryptData(mainAB,pw); }
     catch(decErr){ hideLoading();document.getElementById('login-error').style.display='block';document.getElementById('login-pw').select();return; }
     storage=JSON.parse(json);
     normalizeStorage();
     currentDiaryName=selectedDriveFile.name.replace('.enc','');currentPassword=pw;driveFileId=selectedDriveFile.id;
+    currentRecoveryKey=null;lastRecoveryBlobRaw=recoveryAB;
     closeModal('modal-login');hideLoading();launchApp();
   }catch(e){hideLoading();toast('❌ '+e.message);console.error('submitLogin error:',e);}
 }
@@ -2656,7 +3028,7 @@ async function saveToDrive(){
     // Offline mode: re-encrypt to in-memory blob; user downloads to persist
     setSyncBadge('syncing','Saving…');
     try{
-      const ab=await encryptData(JSON.stringify(storage),currentPassword);
+      const ab=await buildSaveBlob();
       window._offlineBlob=ab;
       setSyncBadge('ok','✓ Saved');
       document.getElementById('sync-badge').style.background='#5c6bc0';
@@ -2668,7 +3040,7 @@ async function saveToDrive(){
   // OneDrive mode: encrypt and upload to the .enc file on OneDrive
   setSyncBadge('syncing','Saving…');
   try{
-    const ab=await encryptData(JSON.stringify(storage),currentPassword);
+    const ab=await buildSaveBlob();
     driveFileId=await uploadToDrive(currentDiaryName,ab,driveFileId);
     setSyncBadge('ok','Saved ✓');
     document.getElementById('save-status').textContent='✅ Saved to OneDrive '+new Date().toLocaleTimeString();
@@ -2688,7 +3060,20 @@ function loadFromLocalStorage(){ return null; }
 
 async function saveEntryAndDrive(){saveEntryInMemory();await saveToDrive();}
 function parseTagsInput(val){return (val||'').split(',').map(t=>t.trim()).filter(Boolean);}
-function saveEntryInMemory(){const h=document.getElementById('diary-editor').innerHTML.trim();const atts=getAttachStage('diary');const tags=parseTagsInput(document.getElementById('diary-tags')?.value);if(h||atts.length){storage.entries[currentDate]={note:h,attachments:atts,tags};}else{delete storage.entries[currentDate];}dirty=false;renderCalHighlights();}
+function saveEntryInMemory(){
+  const h=document.getElementById('diary-editor').innerHTML.trim();
+  const atts=getAttachStage('diary');
+  const tags=parseTagsInput(document.getElementById('diary-tags')?.value);
+  if(h||atts.length){
+    const prevWeather=(storage.entries[currentDate]&&storage.entries[currentDate].weather)
+      ||(pendingWeather&&pendingWeather.date===currentDate?pendingWeather.data:undefined);
+    storage.entries[currentDate]={note:h,attachments:atts,tags};
+    if(prevWeather)storage.entries[currentDate].weather=prevWeather;
+  }else{
+    delete storage.entries[currentDate];
+  }
+  dirty=false;renderCalHighlights();
+}
 function markDirty(){dirty=true;document.getElementById('save-status').textContent='Unsaved…';clearTimeout(autoSaveTimer);saveEntryInMemory();autoSaveTimer=setTimeout(saveEntryAndDrive,5000);}
 
 function createNewDiary(){['nd-name','nd-pw','nd-pw2'].forEach(id=>document.getElementById(id).value='');openModal('modal-new-diary');}
@@ -2696,7 +3081,20 @@ async function submitNewDiary(){
   const name=document.getElementById('nd-name').value.trim().replace(/[^a-zA-Z0-9 _\-]/g,''),pw=document.getElementById('nd-pw').value,pw2=document.getElementById('nd-pw2').value;
   if(!name)return toast('Enter a name');if(pw.length<4)return toast('Password too short');if(pw!==pw2)return toast('Passwords mismatch');
   closeModal('modal-new-diary');showLoading('Creating…');
-  try{const init={entries:{},todos:[],lists:[],expenses:[],contacts:[],sticky_notes:[],notebooks:{},projects:[],secret_entries:{},expLists:{cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]}};const ab=await encryptData(JSON.stringify(init),pw);await uploadToDrive(name,ab,null);toast('✅ Diary created!');await loadDiaryList();}
+  try{
+    const init={entries:{},todos:[],lists:[],expenses:[],contacts:[],sticky_notes:[],notebooks:{},projects:[],secret_entries:{},expLists:{cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]}};
+    const initJson=JSON.stringify(init);
+    const mainAB=await encryptData(initJson,pw);
+    const recoveryKey=generateRecoveryKey();
+    const recAB=await encryptData(initJson,recoveryKey);
+    const ab=packContainer(mainAB,recAB);
+    await uploadToDrive(name,ab,null);
+    toast('✅ Diary created!');
+    await loadDiaryList();
+    hideLoading();
+    showRecoveryKeyModal(recoveryKey);
+    return;
+  }
   catch(e){toast('❌ '+e.message);}finally{hideLoading();}
 }
 
@@ -2709,6 +3107,7 @@ function lockDiary(){
     clearTimeout(autoSaveTimer);
     storage=null;currentDiaryName=null;currentPassword=null;driveFileId=null;
     localEncFile=null;isOfflineMode=false;window._offlineBlob=null;
+    currentRecoveryKey=null;lastRecoveryBlobRaw=null;
     accessToken=null;userProfile=null;
     _nbUnlockedIds=new Set();
     document.removeEventListener('keydown',globalKey);
@@ -2717,13 +3116,14 @@ function lockDiary(){
     document.getElementById('step-signin').style.display='block';
     document.getElementById('step-diaries').style.display='none';
     document.getElementById('g-status').innerHTML='<span id="g-status-text" style="color:var(--text-muted);font-size:13px">Not signed in to Microsoft</span>';
+    document.getElementById('lock-screen').style.display='none';
     hideLoading();
   };
   // Flush diary editor to storage then save before locking
   saveEntryInMemory();
   saveToDrive().then(doLock).catch(doLock);
 }
-async function downloadEncFile(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await encryptData(JSON.stringify(storage),currentPassword);const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();URL.revokeObjectURL(url);toast('⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
+async function downloadEncFile(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await buildSaveBlob();const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();URL.revokeObjectURL(url);toast('⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
 function exportJSON(){if(!storage)return;const url=URL.createObjectURL(new Blob([JSON.stringify(storage,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_backup.json';a.click();URL.revokeObjectURL(url);toast('📤 JSON exported');closeMoreMenu();}
 
 // ── LAUNCH APP ──
@@ -2788,6 +3188,28 @@ function refreshSettingsModal(){
       ?`<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;font-weight:600;color:var(--accent)">✓ Enabled on this device</span><button class="btn btn-secondary btn-sm" onclick="removeQuickPin()">Disable</button></div>`
       :`<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;font-weight:600">Not set up</span><button class="btn btn-secondary btn-sm" onclick="startQuickPinSetup()">Set up</button></div>`;
   }
+  const bioBox=document.getElementById('settings-bio-box');
+  if(bioBox){
+    const hasBio=!!getBiometricRecord();
+    bioBox.innerHTML=hasBio
+      ?`<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;font-weight:600;color:var(--accent)">✓ Enabled on this device</span><button class="btn btn-secondary btn-sm" onclick="removeBiometricUnlock()">Disable</button></div>`
+      :`<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;font-weight:600">Not set up</span><button class="btn btn-secondary btn-sm" onclick="setupBiometricUnlock()">Set up</button></div>`;
+  }
+  const recBox=document.getElementById('settings-recovery-box');
+  if(recBox){
+    const hasRec=!!(currentRecoveryKey||lastRecoveryBlobRaw);
+    recBox.innerHTML=hasRec
+      ?`<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;font-weight:600;color:var(--accent)">✓ Recovery key set up</span><button class="btn btn-secondary btn-sm" onclick="addRecoveryKeyToCurrentDiary()">Regenerate</button></div>`
+      :`<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;font-weight:600">Not set up</span><button class="btn btn-secondary btn-sm" onclick="addRecoveryKeyToCurrentDiary()">Set up</button></div>`;
+  }
+  const weatherBtn=document.getElementById('settings-weather-btn');
+  if(weatherBtn)weatherBtn.textContent=weatherEnabled()?'🔕 Disable':'🌦️ Enable';
+}
+function settingsToggleWeather(){
+  setWeatherEnabled(!weatherEnabled());
+  refreshSettingsModal();
+  if(weatherEnabled()){ pendingWeather=null; _todayWeatherCache=null; maybeLogWeather(); }
+  else { const el=document.getElementById('diary-weather-badge'); if(el)el.style.display='none'; }
 }
 async function settingsToggleNotifications(){
   if(notificationsEnabled())disableNotifications();
@@ -2795,7 +3217,7 @@ async function settingsToggleNotifications(){
 }
 
 // ── QUICK PIN UNLOCK (device-local; wraps the real diary password with a short PIN) ──
-function quickPinStorageKey(){return 'sd_qpin_'+(currentDiaryName||'default');}
+function quickPinStorageKey(){return 'sd_qpin_'+(currentDiaryName||(selectedDriveFile?selectedDriveFile.name.replace('.enc',''):'default'));}
 function getQuickPinRecord(){
   try{const raw=localStorage.getItem(quickPinStorageKey());return raw?JSON.parse(raw):null;}catch(e){return null;}
 }
@@ -2868,11 +3290,13 @@ async function unlockWithRecoveredPassword(pw){
   try{
     const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+selectedDriveFile.id+'/content',{headers:{Authorization:'Bearer '+accessToken}});
     if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
-    const ab=await r.arrayBuffer();
-    const json=await decryptData(ab,pw);
+    const raw=await r.arrayBuffer();
+    const {mainAB,recoveryAB}=unpackContainer(raw);
+    const json=await decryptData(mainAB,pw);
     storage=JSON.parse(json);
     normalizeStorage();
     currentDiaryName=selectedDriveFile.name.replace('.enc','');currentPassword=pw;driveFileId=selectedDriveFile.id;
+    currentRecoveryKey=null;lastRecoveryBlobRaw=recoveryAB;
     hideLoading();launchApp();
   }catch(e){hideLoading();toast('❌ '+e.message);}
 }
@@ -2882,6 +3306,100 @@ function maybeShowQuickPinLink(){
   if(!link)return;
   const key='sd_qpin_'+(selectedDriveFile?selectedDriveFile.name.replace('.enc',''):'default');
   link.style.display=localStorage.getItem(key)?'block':'none';
+}
+
+// ── BIOMETRIC UNLOCK (WebAuthn platform authenticator; device-local) ──
+function biometricStorageKey(){return 'sd_bio_'+(currentDiaryName||'default');}
+function getBiometricRecord(){try{const raw=localStorage.getItem(biometricStorageKey());return raw?JSON.parse(raw):null;}catch(e){return null;}}
+async function biometricAvailable(){
+  if(!window.PublicKeyCredential||!PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable)return false;
+  try{return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();}catch(e){return false;}
+}
+async function setupBiometricUnlock(){
+  if(!currentPassword){toast('Open your diary first');return;}
+  if(!(await biometricAvailable())){toast('⚠️ No Face/Touch ID or device unlock available here');return;}
+  try{
+    const challenge=crypto.getRandomValues(new Uint8Array(32));
+    const userId=crypto.getRandomValues(new Uint8Array(16));
+    const cred=await navigator.credentials.create({publicKey:{
+      challenge,
+      rp:{name:'Secure Diary'},
+      user:{id:userId,name:currentDiaryName||'diary',displayName:currentDiaryName||'Diary'},
+      pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},
+      timeout:60000,
+      attestation:'none'
+    }});
+    const rec={credId:ab2b64(cred.rawId),diaryName:currentDiaryName,createdAt:Date.now()};
+    localStorage.setItem(biometricStorageKey(),JSON.stringify(rec));
+    toast('✅ Biometric unlock enabled');
+    refreshSettingsModal();
+  }catch(e){toast('❌ '+(e.message||'Could not set up biometric unlock'));}
+}
+function removeBiometricUnlock(){
+  if(!confirm('Disable biometric unlock on this device?'))return;
+  localStorage.removeItem(biometricStorageKey());
+  toast('🔓 Biometric unlock disabled');
+  refreshSettingsModal();
+}
+async function tryBiometricUnlock(){
+  const rec=getBiometricRecord();
+  if(!rec){toast('No biometric unlock set up for this diary');return;}
+  try{
+    const challenge=crypto.getRandomValues(new Uint8Array(32));
+    await navigator.credentials.get({publicKey:{
+      challenge,
+      allowCredentials:[{id:b642ab(rec.credId),type:'public-key',transports:['internal']}],
+      userVerification:'required',
+      timeout:60000
+    }});
+    hideLockScreen();
+  }catch(e){toast('❌ Biometric unlock failed or cancelled');}
+}
+
+// ── QUICK LOCK (blocks the app in place; unlock with biometrics/PIN, no re-sign-in needed) ──
+async function requestLockOnly(){
+  if(!storage||!currentPassword){toast('Open a diary first');return;}
+  const hasPin=!!getQuickPinRecord();
+  const hasBio=!!getBiometricRecord();
+  if(!hasPin&&!hasBio){
+    if(confirm("You'll need a Quick PIN or biometric unlock set up before you can lock the diary — otherwise you couldn't get back in. Set one up now?")){
+      openSettingsModal();
+    }
+    return;
+  }
+  saveEntryInMemory();
+  saveToDrive().catch(()=>{}); // best-effort background save; lock screen shows immediately either way
+  showLockScreen();
+}
+function showLockScreen(){
+  document.getElementById('lock-screen-name').textContent=(currentDiaryName||'Diary')+' — Locked';
+  const bioBtn=document.getElementById('lock-screen-bio-btn');
+  const pinWrap=document.getElementById('lock-screen-pin-wrap');
+  const hasBio=!!getBiometricRecord();
+  const hasPin=!!getQuickPinRecord();
+  bioBtn.style.display=hasBio?'block':'none';
+  pinWrap.style.display=hasPin?'block':'none';
+  document.getElementById('lock-screen-pin-input').value='';
+  document.getElementById('lock-screen-pin-error').style.display='none';
+  document.getElementById('lock-screen').style.display='flex';
+  document.getElementById('more-menu').classList.remove('open');
+  if(hasBio)setTimeout(tryBiometricUnlock,400); // offer biometric immediately
+}
+function hideLockScreen(){
+  document.getElementById('lock-screen').style.display='none';
+  toast('🔓 Unlocked');
+}
+async function submitLockScreenPin(){
+  const pin=document.getElementById('lock-screen-pin-input').value.trim();
+  const rec=getQuickPinRecord();
+  if(!rec){toast('No PIN set up');return;}
+  try{
+    await decryptData(b642ab(rec.data),pin); // just needs to decrypt correctly — data itself is already unlocked in memory
+    hideLockScreen();
+  }catch(e){
+    document.getElementById('lock-screen-pin-error').style.display='block';
+  }
 }
 
 // ── REMINDER EMAIL (opens the device's mail app — this app has no backend to send mail itself) ──
@@ -3151,6 +3669,10 @@ function loadDiaryEntry(){
   initAttachUI('diary', entry?entry.attachments:[]);
   document.getElementById('save-status').textContent='Ready';
   dirty=false;
+  // Weather badge: show whatever's already logged for this date, and quietly
+  // fetch today's weather in the background if we haven't logged it yet.
+  renderWeatherBadge(entry&&entry.weather?entry.weather:(pendingWeather&&pendingWeather.date===currentDate?pendingWeather.data:null));
+  if(currentDate===todayStr())maybeLogWeather();
   // Show reminder banner only when viewing today
   if(currentDate===todayStr()) showReminderBanner();
   else {
@@ -4664,6 +5186,25 @@ function renderDashboard(){
 
   checkBackupNudge();
 
+  // weather
+  const wEl=document.getElementById('dash-weather');
+  if(wEl){
+    const today=todayStr();
+    const todaysEntry=storage.entries&&storage.entries[today];
+    const wdata=(todaysEntry&&todaysEntry.weather)||(pendingWeather&&pendingWeather.date===today?pendingWeather.data:null);
+    if(wdata){
+      const w=weatherDesc(wdata.code);
+      wEl.style.display='block';
+      wEl.innerHTML=`${w.i} ${wdata.temp!=null?Math.round(wdata.temp)+'°C':''}${w.d?' '+escH(w.d):''}${wdata.place?' • '+escH(wdata.place):''}`;
+    }else if(weatherEnabled()){
+      wEl.style.display='block';
+      wEl.textContent='🌡️ Fetching today\'s weather…';
+      ensureTodayWeather();
+    }else{
+      wEl.style.display='none';
+    }
+  }
+
   // stats row
   const pendingTasks=(storage.todos||[]).filter(t=>!t.done).length;
   const entryCount=Object.keys(storage.entries||{}).length;
@@ -4978,7 +5519,7 @@ function performSearch(){
 function openAbout(){openModal('modal-about');closeMoreMenu();}
 
 // ── keyboard / modal close ──
-function globalKey(e){if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();saveEntryAndDrive();}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();navTo('search');setTimeout(()=>document.getElementById('panel-search-input')?.focus(),300);}}
+function globalKey(e){if(document.getElementById('lock-screen')&&document.getElementById('lock-screen').style.display==='flex')return;if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();saveEntryAndDrive();}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();navTo('search');setTimeout(()=>document.getElementById('panel-search-input')?.focus(),300);}}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));});
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');}));
 
@@ -5065,9 +5606,10 @@ async function submitLocalLogin(){
   if(!localEncFile)return;
   showLoading('Decrypting…');
   try{
-    const ab=await localEncFile.arrayBuffer();
+    const raw=await localEncFile.arrayBuffer();
+    const {mainAB,recoveryAB}=unpackContainer(raw);
     let json;
-    try{ json=await decryptData(ab,pw); }
+    try{ json=await decryptData(mainAB,pw); }
     catch(e){
       hideLoading();
       document.getElementById('local-login-error').style.display='block';
@@ -5084,6 +5626,7 @@ async function submitLocalLogin(){
     currentPassword=pw;
     driveFileId=null;
     isOfflineMode=true;
+    currentRecoveryKey=null;lastRecoveryBlobRaw=recoveryAB;
     closeModal('modal-local-login');
     hideLoading();
     launchApp();
@@ -5101,7 +5644,7 @@ async function downloadEncFile(){
     if(!storage||!currentPassword)return;
     showLoading('Preparing…');
     try{
-      const ab=await encryptData(JSON.stringify(storage),currentPassword);
+      const ab=await buildSaveBlob();
       const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));
       const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();
       URL.revokeObjectURL(url);
