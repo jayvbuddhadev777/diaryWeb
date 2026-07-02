@@ -3138,6 +3138,13 @@ function copyRedirectUri(){const u=location.origin+location.pathname;navigator.c
 function lockDiary(){
   if(!confirm('Lock and exit?'))return;
   closeMoreMenu();
+  performLockExit();
+}
+// Shared exit-lock routine — flushes + saves the diary, then fully signs out of it.
+// Used by the manual "Lock & Exit" action and by the inactivity auto-lock fallback
+// (when no Quick PIN / biometric unlock is set up, so a quick lock-screen isn't possible).
+function performLockExit(){
+  stopInactivityWatcher();
   const doLock=()=>{
     clearTimeout(autoSaveTimer);
     storage=null;currentDiaryName=null;currentPassword=null;driveFileId=null;
@@ -3158,7 +3165,8 @@ function lockDiary(){
   saveEntryInMemory();
   saveToDrive().then(doLock).catch(doLock);
 }
-async function downloadEncFile(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await buildSaveBlob();const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();URL.revokeObjectURL(url);toast('⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
+function tsStamp(){const d=new Date();const p=n=>String(n).padStart(2,'0');return p(d.getFullYear()%100)+p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes());}
+async function downloadEncFile(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await buildSaveBlob();const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_'+tsStamp()+'.enc';a.click();URL.revokeObjectURL(url);toast(isOfflineMode?'⬇ Downloaded — replace your old file with this one':'⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
 function exportJSON(){if(!storage)return;const url=URL.createObjectURL(new Blob([JSON.stringify(storage,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_backup.json';a.click();URL.revokeObjectURL(url);toast('📤 JSON exported');closeMoreMenu();}
 
 // ── LAUNCH APP ──
@@ -3423,11 +3431,53 @@ function showLockScreen(){
   document.getElementById('lock-screen-pin-error').style.display='none';
   document.getElementById('lock-screen').style.display='flex';
   document.getElementById('more-menu').classList.remove('open');
+  stopInactivityWatcher();
   if(hasBio)setTimeout(tryBiometricUnlock,400); // offer biometric immediately
 }
 function hideLockScreen(){
   document.getElementById('lock-screen').style.display='none';
   toast('🔓 Unlocked');
+  resetInactivityTimer();
+}
+
+// ── AUTO-LOCK ON INACTIVITY (10 minutes) ──
+const INACTIVITY_LIMIT_MS=10*60*1000;
+let inactivityTimer=null;
+let _inactivityWatcherArmed=false;
+function resetInactivityTimer(){
+  clearTimeout(inactivityTimer);
+  if(!storage||!currentPassword)return; // no diary unlocked
+  if(document.getElementById('lock-screen').style.display==='flex')return; // already locked
+  inactivityTimer=setTimeout(autoLockDueToInactivity,INACTIVITY_LIMIT_MS);
+}
+function stopInactivityWatcher(){
+  clearTimeout(inactivityTimer);
+  inactivityTimer=null;
+}
+function armInactivityWatcher(){
+  if(_inactivityWatcherArmed)return;
+  _inactivityWatcherArmed=true;
+  ['mousemove','mousedown','keydown','touchstart','scroll','wheel'].forEach(evt=>{
+    document.addEventListener(evt,resetInactivityTimer,{passive:true});
+  });
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden)resetInactivityTimer(); });
+}
+async function autoLockDueToInactivity(){
+  if(!storage||!currentPassword)return;
+  if(document.getElementById('lock-screen').style.display==='flex')return;
+  saveEntryInMemory();
+  try{ await saveToDrive(); }catch(e){}
+  const hasPin=!!getQuickPinRecord();
+  const hasBio=!!getBiometricRecord();
+  if(hasPin||hasBio){
+    showLockScreen();
+    toast('🔒 Locked after 10 minutes of inactivity');
+  }else{
+    // No Quick PIN / biometric set up, so a lock screen can't be unlocked later —
+    // fully sign out instead so nothing is left exposed.
+    performLockExit();
+    toast('🔒 Signed out after 10 minutes of inactivity');
+  }
 }
 async function submitLockScreenPin(){
   const pin=document.getElementById('lock-screen-pin-input').value.trim();
@@ -3489,6 +3539,8 @@ function launchApp(){
   initCal();
   renderCalHighlights();
   document.addEventListener('keydown',globalKey);
+  armInactivityWatcher();
+  resetInactivityTimer();
   setSyncBadge('ok',isOfflineMode?'Offline':'Saved');
   checkAndFireNotifications(false);
   clearInterval(window._notifInterval);
@@ -5777,25 +5829,6 @@ async function submitLocalLogin(){
     document.getElementById('sync-badge').textContent='Offline';
     document.getElementById('sync-badge').style.background='#5c6bc0';
   }catch(e){hideLoading();toast('❌ '+e.message);console.error(e);}
-}
-
-
-// Override downloadEncFile to always use latest blob in offline mode
-const _originalDownloadEncFile=downloadEncFile;
-async function downloadEncFile(){
-  if(isOfflineMode){
-    if(!storage||!currentPassword)return;
-    showLoading('Preparing…');
-    try{
-      const ab=await buildSaveBlob();
-      const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));
-      const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();
-      URL.revokeObjectURL(url);
-      toast('⬇ Downloaded — replace your old file with this one');
-    }finally{hideLoading();closeMoreMenu();}
-    return;
-  }
-  return _originalDownloadEncFile();
 }
 
 
