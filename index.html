@@ -219,6 +219,7 @@ html, body {
   cursor: pointer; transition: background 0.15s;
 }
 .hdr-btn:active { background: rgba(255,255,255,0.3); }
+.hdr-btn.spinning { animation: spin 0.7s linear infinite; }
 .sync-badge {
   background: #4caf50; color: #fff;
   font-size: 9px; font-weight: 700;
@@ -1064,6 +1065,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       </div>
       <div class="header-actions">
         <span class="sync-badge" id="sync-badge">Saved</span>
+        <button class="hdr-btn" onclick="manualRefresh()" id="refresh-btn" title="Refresh — check for latest changes">🔄</button>
         <button class="hdr-btn" onclick="toggleDarkMode()" id="dark-toggle-btn" title="Toggle dark mode">🌙</button>
         <button class="hdr-btn" onclick="saveToDrive()" title="Save to Drive">☁</button>
         <button class="hdr-btn" onclick="openMoreMenu()" title="More">⋯</button>
@@ -3155,6 +3157,38 @@ function saveEntryInMemory(){
   }
   dirty=false;renderCalHighlights();
 }
+// ── MANUAL REFRESH (header button) ──
+// Mobile browsers often hide the page-reload control, so this gives an explicit way
+// to verify you're looking at the latest data and pull in any changes from another device.
+async function manualRefresh(){
+  if(!storage||!currentPassword){toast('Open a diary first');return;}
+  if(isOfflineMode){toast('📂 Offline mode — nothing to check on OneDrive');return;}
+  const btn=document.getElementById('refresh-btn');
+  if(btn)btn.classList.add('spinning');
+  try{
+    if(dirty){
+      // Unsaved local changes — push them first rather than checking for remote ones.
+      saveEntryInMemory();
+      await saveToDrive();
+      toast('✅ Your changes were saved');
+      return;
+    }
+    setSyncBadge('syncing','Checking…');
+    const meta=await getRemoteItemMeta(driveFileId);
+    if(meta.lastModifiedDateTime&&meta.lastModifiedDateTime!==lastKnownRemoteModified){
+      await pullRemoteChanges(meta.lastModifiedDateTime);
+    }else{
+      setSyncBadge('ok',isOfflineMode?'Offline':'Saved');
+      toast('✅ Already up to date');
+    }
+  }catch(e){
+    setSyncBadge('error','Error!');
+    toast('❌ Refresh failed: '+e.message);
+  }finally{
+    if(btn)btn.classList.remove('spinning');
+  }
+}
+
 function markDirty(){dirty=true;document.getElementById('save-status').textContent='Unsaved…';saveEntryInMemory();resetIdleLockTimer();clearTimeout(autoSaveTimer);autoSaveTimer=setTimeout(saveEntryAndDrive,5000);}
 
 // ── AUTO-SYNC ──
