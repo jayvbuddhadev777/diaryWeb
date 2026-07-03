@@ -624,7 +624,7 @@ html, body {
   outline: none; transition: border-color 0.2s;
   -webkit-appearance: none;
 }
-.form-input:focus { border-color: var(--primary); background: #fff; }
+.form-input:focus { border-color: var(--primary); background: var(--surface); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 
@@ -703,6 +703,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   display: flex; flex-direction: column;
   box-shadow: 2px 3px 10px rgba(0,0,0,0.08);
   font-size: 13px; line-height: 1.6;
+  color: #1a1f36; /* fixed dark text — note backgrounds are always light pastels, in any theme */
 }
 
 /* ══════════════════════════════════════════
@@ -2421,6 +2422,11 @@ let driveFiles=[],selectedDriveFile=null,driveFileId=null;
 let currentDiaryName=null,currentPassword=null,storage=null;
 let currentDate=todayStr(),calViewDate=new Date();
 let dirty=false,autoSaveTimer=null,taskFilter='all';
+// Auto-sync / conflict / idle-lock state
+let lastKnownRemoteModified=null; // ISO timestamp of the remote .enc file as of our last load/save
+const AUTO_SYNC_MS=15000;         // background sync-poll cadence (push pending edits / pull remote changes)
+const IDLE_LOCK_MS=10*60*1000;    // auto-lock after 10 min of inactivity
+let idleLockTimer=null;
 let editingTaskId=null,editingExpenseId=null,editingContactId=null;
 let editingNoteId=null,currentCLListId=null;
 let editingNbNotebook=null,editingNbPage=null;
@@ -3035,6 +3041,7 @@ async function submitLogin(){
     storage=JSON.parse(json);
     normalizeStorage();
     currentDiaryName=selectedDriveFile.name.replace('.enc','');currentPassword=pw;driveFileId=selectedDriveFile.id;
+    lastKnownRemoteModified=selectedDriveFile.lastModifiedDateTime||null;
     currentRecoveryKey=null;lastRecoveryBlobRaw=recoveryAB;
     closeModal('modal-login');hideLoading();launchApp();
   }catch(e){hideLoading();toast('❌ '+e.message);console.error('submitLogin error:',e);}
@@ -3056,6 +3063,21 @@ async function uploadToDrive(name,ab,existingId){
   if(!r.ok)throw new Error(r.statusText);
   const j=await r.json();return j.id;
 }
+// Same as uploadToDrive but also hands back the item's lastModifiedDateTime,
+// so callers can track the remote version for conflict detection.
+async function uploadToDriveMeta(name,ab,existingId){
+  const url=existingId
+    ?'https://graph.microsoft.com/v1.0/me/drive/items/'+existingId+'/content'
+    :'https://graph.microsoft.com/v1.0/me/drive/special/approot:/'+name+'.enc:/content';
+  const r=await fetch(url,{method:'PUT',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/octet-stream'},body:ab});
+  if(!r.ok)throw new Error(r.statusText);
+  const j=await r.json();return {id:j.id,lastModifiedDateTime:j.lastModifiedDateTime||null};
+}
+// Lightweight metadata check — used to detect if someone else (another device/session)
+// has saved a newer version of this diary since we last loaded/saved it.
+async function getRemoteItemMeta(id){
+  return odReq('https://graph.microsoft.com/v1.0/me/drive/items/'+id+'?$select=id,lastModifiedDateTime');
+}
 
 async function saveToDrive(){
   if(!storage||!currentPassword)return;
@@ -3076,7 +3098,31 @@ async function saveToDrive(){
   setSyncBadge('syncing','Saving…');
   try{
     const ab=await buildSaveBlob();
-    driveFileId=await uploadToDrive(currentDiaryName,ab,driveFileId);
+    // Conflict check: has the remote file changed since we last loaded/saved it
+    // (e.g. edited from another device/tab)? If so, don't clobber it — keep both.
+    if(driveFileId&&lastKnownRemoteModified){
+      try{
+        const meta=await getRemoteItemMeta(driveFileId);
+        if(meta.lastModifiedDateTime&&meta.lastModifiedDateTime!==lastKnownRemoteModified){
+          const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+          const conflictName=currentDiaryName+' (conflict copy '+stamp+')';
+          const cres=await uploadToDriveMeta(conflictName,ab,null);
+          currentDiaryName=conflictName;
+          driveFileId=cres.id;
+          lastKnownRemoteModified=cres.lastModifiedDateTime;
+          const dNameEl=document.getElementById('d-name');if(dNameEl)dNameEl.textContent=currentDiaryName;
+          setSyncBadge('ok','Saved ✓');
+          document.getElementById('save-status').textContent='⚠️ Conflict — saved as a new copy '+new Date().toLocaleTimeString();
+          toast('⚠️ Newer version found on OneDrive — your changes were saved as "'+conflictName+'" so nothing was lost');
+          dirty=false;markSynced();
+          if(currentPanel==='dashboard')checkBackupNudge();
+          return;
+        }
+      }catch(metaErr){ /* metadata check failed (e.g. offline blip) — fall through and save normally */ }
+    }
+    const res=await uploadToDriveMeta(currentDiaryName,ab,driveFileId);
+    driveFileId=res.id;
+    lastKnownRemoteModified=res.lastModifiedDateTime;
     setSyncBadge('ok','Saved ✓');
     document.getElementById('save-status').textContent='✅ Saved to OneDrive '+new Date().toLocaleTimeString();
     dirty=false;
@@ -3109,7 +3155,92 @@ function saveEntryInMemory(){
   }
   dirty=false;renderCalHighlights();
 }
-function markDirty(){dirty=true;document.getElementById('save-status').textContent='Unsaved…';clearTimeout(autoSaveTimer);saveEntryInMemory();autoSaveTimer=setTimeout(saveEntryAndDrive,5000);}
+function markDirty(){dirty=true;document.getElementById('save-status').textContent='Unsaved…';saveEntryInMemory();resetIdleLockTimer();clearTimeout(autoSaveTimer);autoSaveTimer=setTimeout(saveEntryAndDrive,5000);}
+
+// ── AUTO-SYNC ──
+// Two jobs, checked every AUTO_SYNC_MS:
+//  1. If this device has unsaved edits, push them (belt-and-braces alongside the 5s debounce above).
+//  2. If this device has nothing pending, check whether another device has saved a newer
+//     version of the diary — if so, pull it down so both devices stay in sync.
+function startAutoSyncLoop(){
+  clearInterval(window._autoSyncInterval);
+  window._autoSyncInterval=setInterval(autoSyncTick,AUTO_SYNC_MS);
+}
+function stopAutoSyncLoop(){ clearInterval(window._autoSyncInterval); }
+async function autoSyncTick(){
+  if(isOfflineMode||!driveFileId||!currentPassword)return;
+  if(dirty){ saveEntryAndDrive(); return; }
+  try{
+    const meta=await getRemoteItemMeta(driveFileId);
+    if(meta.lastModifiedDateTime&&lastKnownRemoteModified&&meta.lastModifiedDateTime!==lastKnownRemoteModified){
+      await pullRemoteChanges(meta.lastModifiedDateTime);
+    }
+  }catch(e){ /* offline blip / token expiry — silently retry next tick */ }
+}
+// Pulls the latest saved version from OneDrive (e.g. edited on another device) into this session.
+// Only called when we have no unsaved local edits, so it's always safe to apply.
+async function pullRemoteChanges(newModified){
+  try{
+    setSyncBadge('syncing','Syncing…');
+    const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+driveFileId+'/content',{headers:{Authorization:'Bearer '+accessToken}});
+    if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
+    const raw=await r.arrayBuffer();
+    const {mainAB}=unpackContainer(raw);
+    const json=await decryptData(mainAB,currentPassword);
+    storage=JSON.parse(json);
+    normalizeStorage();
+    lastKnownRemoteModified=newModified||lastKnownRemoteModified;
+    refreshUIAfterRemoteSync();
+    setSyncBadge('ok','Synced ✓');
+    document.getElementById('save-status').textContent='🔄 Synced from another device '+new Date().toLocaleTimeString();
+    toast('🔄 Synced latest changes from another device');
+  }catch(e){
+    setSyncBadge('error','Error!');
+    console.error('pullRemoteChanges',e);
+  }
+}
+// Re-renders whichever panel is currently visible, without navigating away or losing scroll/focus.
+// Skips the diary editor if it's the field currently focused, to avoid yanking the cursor mid-type.
+function refreshUIAfterRemoteSync(){
+  renderCalHighlights();
+  const p=currentPanel;
+  const editingDiaryNow=document.activeElement&&document.activeElement.id==='diary-editor';
+  if(p==='diary'&&!editingDiaryNow)loadDiaryEntry();
+  if(p==='tasks')renderTasks();
+  if(p==='lists')renderChecklists();
+  if(p==='calendar')renderCalPanel();
+  if(p==='expenses'){renderExpenses();if(currentExpTab==='report')renderReport();}
+  if(p==='contacts')renderContacts();
+  if(p==='notes')renderNotes();
+  if(p==='notebook')renderNotebooks();
+  if(p==='projects'){renderProjects();renderProjStats();}
+  if(p==='search')performPanelSearch();
+  if(p==='dashboard')renderDashboard();
+  if(p==='gallery')renderGallery();
+}
+
+// ── AUTO-LOCK (after 10 min of inactivity) ──
+function resetIdleLockTimer(){
+  if(!storage||!currentPassword)return; // no diary open, nothing to protect
+  clearTimeout(idleLockTimer);
+  idleLockTimer=setTimeout(autoLockOnIdle,IDLE_LOCK_MS);
+}
+function autoLockOnIdle(){
+  if(!storage||!currentPassword)return;
+  if(document.getElementById('lock-screen')&&document.getElementById('lock-screen').style.display==='flex')return; // already locked
+  saveEntryInMemory();
+  saveToDrive().catch(()=>{}); // best-effort background save before locking
+  const hasPin=!!getQuickPinRecord();
+  const hasBio=!!getBiometricRecord();
+  if(hasPin||hasBio){
+    showLockScreen(); // quick lock — same session, unlock with PIN/biometric
+  }else{
+    performLockExit(); // no quick-unlock configured — fall back to full sign-out
+  }
+}
+['mousemove','keydown','mousedown','touchstart','scroll','wheel'].forEach(evt=>
+  document.addEventListener(evt,()=>{ if(storage&&currentPassword)resetIdleLockTimer(); },{passive:true})
+);
 
 function createNewDiary(){['nd-name','nd-pw','nd-pw2'].forEach(id=>document.getElementById(id).value='');openModal('modal-new-diary');}
 async function submitNewDiary(){
@@ -3137,16 +3268,17 @@ function copyRedirectUri(){const u=location.origin+location.pathname;navigator.c
 
 function lockDiary(){
   if(!confirm('Lock and exit?'))return;
-  closeMoreMenu();
   performLockExit();
 }
-// Shared exit-lock routine — flushes + saves the diary, then fully signs out of it.
-// Used by the manual "Lock & Exit" action and by the inactivity auto-lock fallback
-// (when no Quick PIN / biometric unlock is set up, so a quick lock-screen isn't possible).
+// Full lock/sign-out — shared by the manual "Lock & Exit" action and the
+// inactivity auto-lock fallback (used when no Quick PIN/biometric is configured).
 function performLockExit(){
-  stopInactivityWatcher();
+  closeMoreMenu();
   const doLock=()=>{
     clearTimeout(autoSaveTimer);
+    stopAutoSyncLoop();
+    clearTimeout(idleLockTimer);
+    lastKnownRemoteModified=null;
     storage=null;currentDiaryName=null;currentPassword=null;driveFileId=null;
     localEncFile=null;isOfflineMode=false;window._offlineBlob=null;
     currentRecoveryKey=null;lastRecoveryBlobRaw=null;
@@ -3165,8 +3297,7 @@ function performLockExit(){
   saveEntryInMemory();
   saveToDrive().then(doLock).catch(doLock);
 }
-function tsStamp(){const d=new Date();const p=n=>String(n).padStart(2,'0');return p(d.getFullYear()%100)+p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes());}
-async function downloadEncFile(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await buildSaveBlob();const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_'+tsStamp()+'.enc';a.click();URL.revokeObjectURL(url);toast(isOfflineMode?'⬇ Downloaded — replace your old file with this one':'⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
+async function downloadEncFile(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await buildSaveBlob();const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();URL.revokeObjectURL(url);toast('⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
 function exportJSON(){if(!storage)return;const url=URL.createObjectURL(new Blob([JSON.stringify(storage,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_backup.json';a.click();URL.revokeObjectURL(url);toast('📤 JSON exported');closeMoreMenu();}
 
 // ── LAUNCH APP ──
@@ -3343,6 +3474,7 @@ async function unlockWithRecoveredPassword(pw){
     storage=JSON.parse(json);
     normalizeStorage();
     currentDiaryName=selectedDriveFile.name.replace('.enc','');currentPassword=pw;driveFileId=selectedDriveFile.id;
+    lastKnownRemoteModified=selectedDriveFile.lastModifiedDateTime||null;
     currentRecoveryKey=null;lastRecoveryBlobRaw=recoveryAB;
     hideLoading();launchApp();
   }catch(e){hideLoading();toast('❌ '+e.message);}
@@ -3431,53 +3563,13 @@ function showLockScreen(){
   document.getElementById('lock-screen-pin-error').style.display='none';
   document.getElementById('lock-screen').style.display='flex';
   document.getElementById('more-menu').classList.remove('open');
-  stopInactivityWatcher();
+  clearTimeout(idleLockTimer); // already locked — no need to keep counting down
   if(hasBio)setTimeout(tryBiometricUnlock,400); // offer biometric immediately
 }
 function hideLockScreen(){
   document.getElementById('lock-screen').style.display='none';
   toast('🔓 Unlocked');
-  resetInactivityTimer();
-}
-
-// ── AUTO-LOCK ON INACTIVITY (10 minutes) ──
-const INACTIVITY_LIMIT_MS=10*60*1000;
-let inactivityTimer=null;
-let _inactivityWatcherArmed=false;
-function resetInactivityTimer(){
-  clearTimeout(inactivityTimer);
-  if(!storage||!currentPassword)return; // no diary unlocked
-  if(document.getElementById('lock-screen').style.display==='flex')return; // already locked
-  inactivityTimer=setTimeout(autoLockDueToInactivity,INACTIVITY_LIMIT_MS);
-}
-function stopInactivityWatcher(){
-  clearTimeout(inactivityTimer);
-  inactivityTimer=null;
-}
-function armInactivityWatcher(){
-  if(_inactivityWatcherArmed)return;
-  _inactivityWatcherArmed=true;
-  ['mousemove','mousedown','keydown','touchstart','scroll','wheel'].forEach(evt=>{
-    document.addEventListener(evt,resetInactivityTimer,{passive:true});
-  });
-  document.addEventListener('visibilitychange',()=>{ if(!document.hidden)resetInactivityTimer(); });
-}
-async function autoLockDueToInactivity(){
-  if(!storage||!currentPassword)return;
-  if(document.getElementById('lock-screen').style.display==='flex')return;
-  saveEntryInMemory();
-  try{ await saveToDrive(); }catch(e){}
-  const hasPin=!!getQuickPinRecord();
-  const hasBio=!!getBiometricRecord();
-  if(hasPin||hasBio){
-    showLockScreen();
-    toast('🔒 Locked after 10 minutes of inactivity');
-  }else{
-    // No Quick PIN / biometric set up, so a lock screen can't be unlocked later —
-    // fully sign out instead so nothing is left exposed.
-    performLockExit();
-    toast('🔒 Signed out after 10 minutes of inactivity');
-  }
+  resetIdleLockTimer();
 }
 async function submitLockScreenPin(){
   const pin=document.getElementById('lock-screen-pin-input').value.trim();
@@ -3539,8 +3631,8 @@ function launchApp(){
   initCal();
   renderCalHighlights();
   document.addEventListener('keydown',globalKey);
-  armInactivityWatcher();
-  resetInactivityTimer();
+  startAutoSyncLoop();
+  resetIdleLockTimer();
   setSyncBadge('ok',isOfflineMode?'Offline':'Saved');
   checkAndFireNotifications(false);
   clearInterval(window._notifInterval);
@@ -5829,6 +5921,25 @@ async function submitLocalLogin(){
     document.getElementById('sync-badge').textContent='Offline';
     document.getElementById('sync-badge').style.background='#5c6bc0';
   }catch(e){hideLoading();toast('❌ '+e.message);console.error(e);}
+}
+
+
+// Override downloadEncFile to always use latest blob in offline mode
+const _originalDownloadEncFile=downloadEncFile;
+async function downloadEncFile(){
+  if(isOfflineMode){
+    if(!storage||!currentPassword)return;
+    showLoading('Preparing…');
+    try{
+      const ab=await buildSaveBlob();
+      const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));
+      const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();
+      URL.revokeObjectURL(url);
+      toast('⬇ Downloaded — replace your old file with this one');
+    }finally{hideLoading();closeMoreMenu();}
+    return;
+  }
+  return _originalDownloadEncFile();
 }
 
 
