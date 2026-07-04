@@ -239,7 +239,11 @@ html, body {
 }
 
 /* PANELS */
-.panel { display: none; flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: touch; }
+.panel { display: none; flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: touch; zoom: var(--content-zoom, 1); }
+.font-size-ctrl { display:flex; align-items:center; gap:2px; }
+.font-size-ctrl button { background:none; border:none; color:inherit; cursor:pointer; font-family:'DM Sans',sans-serif; font-weight:700; padding:4px 6px; border-radius:6px; line-height:1; }
+.font-size-ctrl button:active { background:rgba(255,255,255,0.25); }
+.font-size-ctrl .fs-label { font-size:9px; opacity:0.7; min-width:26px; text-align:center; }
 .panel.active { display: flex; flex-direction: column; gap: 14px; }
 
 /* BOTTOM NAV */
@@ -566,6 +570,15 @@ html, body {
 .result-type-badge { font-size: 10px; background: var(--primary-light); color: var(--primary); padding: 2px 8px; border-radius: 20px; font-weight: 700; display: inline-block; margin-bottom: 4px; }
 .result-date { font-size: 11px; color: var(--primary); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
 .result-snippet { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+
+/* Search "jump to" flash highlight — briefly outlines the target item after navigating to it */
+@keyframes searchFlashPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 213, 0, 0.85); background-color: rgba(255, 241, 118, 0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(255, 213, 0, 0); background-color: rgba(255, 241, 118, 0.25); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 213, 0, 0); background-color: transparent; }
+}
+.search-flash { animation: searchFlashPulse 1.6s ease-out 2; border-radius: var(--radius, 10px); }
+mark.search-term-hl { background:#fff176; color:#1a1f36; border-radius:2px; padding:0 1px; }
 
 /* Icon button */
 .icon-btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font-size: 14px; cursor: pointer; transition: all 0.12s; }
@@ -1027,13 +1040,13 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         <div class="drawer-section-label">Navigate</div>
         <div class="drawer-item" id="di-dashboard" onclick="navTo('dashboard')"><span class="drawer-item-icon">🏠</span>Dashboard</div>
         <div class="drawer-item active" id="di-diary" onclick="navTo('diary')"><span class="drawer-item-icon">📓</span>Diary</div>
+        <div class="drawer-item" id="di-notebook" onclick="navTo('notebook')"><span class="drawer-item-icon">📚</span>Notebooks</div>
         <div class="drawer-item" id="di-tasks" onclick="navTo('tasks')"><span class="drawer-item-icon">✅</span>Tasks</div>
         <div class="drawer-item" id="di-lists" onclick="navTo('lists')"><span class="drawer-item-icon">📋</span>Checklists</div>
         <div class="drawer-item" id="di-calendar" onclick="navTo('calendar')"><span class="drawer-item-icon">📅</span>Calendar</div>
         <div class="drawer-item" id="di-expenses" onclick="navTo('expenses')"><span class="drawer-item-icon">💰</span>Expenses</div>
         <div class="drawer-item" id="di-contacts" onclick="navTo('contacts')"><span class="drawer-item-icon">📇</span>Contacts</div>
         <div class="drawer-item" id="di-notes" onclick="navTo('notes')"><span class="drawer-item-icon">📌</span>Sticky Notes</div>
-        <div class="drawer-item" id="di-notebook" onclick="navTo('notebook')"><span class="drawer-item-icon">📚</span>Notebooks</div>
         <div class="drawer-item" id="di-projects" onclick="navTo('projects')"><span class="drawer-item-icon">🗂</span>Projects</div>
         <div class="drawer-item" id="di-search" onclick="navTo('search')"><span class="drawer-item-icon">🔍</span>Search</div>
       </div>
@@ -1197,6 +1210,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <!-- TASKS -->
       <div class="panel" id="panel-tasks">
         <div class="stats-row" id="task-stats"></div>
+        <input type="text" class="form-input" id="task-search" placeholder="🔍 Search tasks…" oninput="renderTasks()" style="margin-bottom:8px"/>
         <div class="filter-pills">
           <div class="pill active" onclick="setTaskFilter('all',this)">All</div>
           <div class="pill" onclick="setTaskFilter('pending',this)">Pending</div>
@@ -1209,6 +1223,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <!-- LISTS (checklists) -->
       <div class="panel" id="panel-lists">
         <button class="btn btn-secondary" onclick="createChecklist()">＋ New Checklist</button>
+        <input type="text" class="form-input" id="cl-search" placeholder="🔍 Search checklists & items…" oninput="renderChecklists()" style="margin:8px 0"/>
         <div id="checklists-container" style="display:flex;flex-direction:column;gap:12px"></div>
       </div>
 
@@ -1222,6 +1237,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         </div>
         <!-- LIST VIEW -->
         <div id="exp-view-list">
+          <input type="text" class="form-input" id="exp-search" placeholder="🔍 Search expenses (note, category, mode, account)…" oninput="renderExpenses()" style="margin-bottom:8px"/>
           <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:4px" class="filter-pills">
             <div style="flex:1;min-width:130px">
               <div class="form-label" style="font-size:10px">From</div>
@@ -1243,14 +1259,53 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         </div>
         <!-- REPORT VIEW -->
         <div id="exp-view-report" style="display:none;flex-direction:column;gap:14px">
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <div class="pill active" id="rep-mode-month" onclick="setReportMode('month')">📅 Month</div>
+            <div class="pill" id="rep-mode-range" onclick="setReportMode('range')">↔ Custom Range</div>
+          </div>
+          <div id="rep-month-controls" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <select class="form-input" id="rep-month" style="width:auto;padding:8px 10px;font-size:13px" onchange="renderReport()"></select>
             <select class="form-input" id="rep-year" style="width:auto;padding:8px 10px;font-size:13px" onchange="renderReport()"></select>
           </div>
+          <div id="rep-range-controls" style="display:none;gap:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:130px">
+              <div class="form-label" style="font-size:10px">From</div>
+              <input type="date" class="form-input" id="rep-from" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()"/>
+            </div>
+            <div style="flex:1;min-width:130px">
+              <div class="form-label" style="font-size:10px">To</div>
+              <input type="date" class="form-input" id="rep-to" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()"/>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:130px">
+              <div class="form-label" style="font-size:10px">Account</div>
+              <select class="form-input" id="rep-account" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()"><option value="">All accounts</option></select>
+            </div>
+            <div style="flex:1;min-width:130px">
+              <div class="form-label" style="font-size:10px">Category</div>
+              <select class="form-input" id="rep-category" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()"><option value="">All categories</option></select>
+            </div>
+            <div style="flex:1;min-width:130px">
+              <div class="form-label" style="font-size:10px">Group By</div>
+              <select class="form-input" id="rep-groupby" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()">
+                <option value="category">Category</option>
+                <option value="account">Account</option>
+                <option value="mode">Payment Mode</option>
+                <option value="date">Date (day)</option>
+                <option value="month">Month</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">⬇ CSV</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportReportExcel()">📊 Excel</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportReportPDF()">🖨 PDF</button>
+          </div>
           <div id="rep-stats" class="stats-row"></div>
-          <!-- Category bar chart -->
+          <!-- Group-by bar chart -->
           <div class="card">
-            <div style="font-weight:700;font-size:14px;margin-bottom:12px">💰 Spending by Category</div>
+            <div style="font-weight:700;font-size:14px;margin-bottom:12px" id="rep-chart-title">💰 Spending by Category</div>
             <div id="rep-cat-chart"></div>
           </div>
           <!-- Monthly trend -->
@@ -1258,10 +1313,15 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             <div style="font-weight:700;font-size:14px;margin-bottom:12px">📈 Daily Spending</div>
             <div id="rep-daily-chart" style="overflow-x:auto"></div>
           </div>
-          <!-- Category breakdown table -->
+          <!-- Group-by breakdown table -->
           <div class="card">
-            <div style="font-weight:700;font-size:14px;margin-bottom:10px">📋 Category Breakdown</div>
+            <div style="font-weight:700;font-size:14px;margin-bottom:10px" id="rep-table-title">📋 Category Breakdown</div>
             <div id="rep-cat-table"></div>
+          </div>
+          <!-- Individual transaction lines -->
+          <div class="card">
+            <div style="font-weight:700;font-size:14px;margin-bottom:10px">🧾 Transaction Detail (<span id="rep-txn-count">0</span>)</div>
+            <div id="rep-txn-table" style="overflow-x:auto"></div>
           </div>
         </div>
       </div>
@@ -1287,12 +1347,14 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 
       <!-- STICKY NOTES -->
       <div class="panel" id="panel-notes">
+        <input type="text" class="form-input" id="note-search" placeholder="🔍 Search notes…" oninput="renderNotes()" style="margin-bottom:8px"/>
         <div class="notes-grid" id="notes-grid"></div>
       </div>
 
       <!-- NOTEBOOKS -->
       <div class="panel" id="panel-notebook">
         <button class="btn btn-secondary" onclick="openNewNotebookModal()" style="margin-bottom:0">＋ New Notebook</button>
+        <input type="text" class="form-input" id="nb-search" placeholder="🔍 Search notebooks & pages…" oninput="renderNotebooks()" style="margin:8px 0"/>
         <div id="notebook-list" style="display:flex;flex-direction:column;gap:10px"></div>
       </div>
 
@@ -1311,6 +1373,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 
         <!-- BOARD VIEW (default) -->
         <div id="pv-board" style="display:flex;flex-direction:column;gap:10px">
+          <input type="text" class="form-input" id="proj-search" placeholder="🔍 Search projects & tasks…" oninput="renderProjects()"/>
           <!-- Priority filter -->
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
             <div class="pill active" id="pf-all"    onclick="setProjFilter('all',this)">All</div>
@@ -1515,11 +1578,19 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   <div class="more-sheet">
     <div class="modal-handle"></div>
     <h3>More</h3>
+    <div class="more-item" style="cursor:default" onclick="event.stopPropagation()">
+      <span class="more-item-icon">🔤</span>Text Size
+      <div class="font-size-ctrl" style="margin-left:auto">
+        <button onclick="adjustFontSize(-1)" title="Decrease text size">A-</button>
+        <span class="fs-label" id="fs-label">100%</span>
+        <button onclick="adjustFontSize(1)" title="Increase text size">A+</button>
+      </div>
+    </div>
     <div class="more-item" onclick="navFromMore('dashboard')"><span class="more-item-icon">🏠</span>Dashboard</div>
+    <div class="more-item" onclick="navFromMore('notebook')"><span class="more-item-icon">📚</span>Notebooks</div>
     <div class="more-item" onclick="navFromMore('expenses')"><span class="more-item-icon">💰</span>Expenses</div>
     <div class="more-item" onclick="navFromMore('contacts')"><span class="more-item-icon">📇</span>Contacts</div>
     <div class="more-item" onclick="navFromMore('notes')"><span class="more-item-icon">📌</span>Sticky Notes</div>
-    <div class="more-item" onclick="navFromMore('notebook')"><span class="more-item-icon">📚</span>Notebooks</div>
     <div class="more-item" onclick="navFromMore('projects')"><span class="more-item-icon">🗂</span>Projects</div>
     <div class="more-item" onclick="navFromMore('gallery')"><span class="more-item-icon">🖼</span>Attachment Gallery</div>
     <div class="more-item" onclick="navFromMore('search')"><span class="more-item-icon">🔍</span>Search Everything</div>
@@ -1890,8 +1961,9 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   <div class="modal" style="border-radius:0;max-height:100dvh;height:100dvh;display:flex;flex-direction:column;padding:0;max-width:100%">
     <!-- Header bar -->
     <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;background:var(--primary);flex-shrink:0">
-      <button onclick="closeModal('modal-nb-page')" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:8px;width:36px;height:36px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center">←</button>
-      <input type="text" id="nb-page-name" placeholder="Page title…" style="flex:1;background:rgba(255,255,255,0.15);border:none;border-radius:8px;padding:8px 12px;font-size:16px;font-weight:700;color:#fff;outline:none;font-family:'Fraunces',serif;" />
+      <button onclick="closeNbPageEditor()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:8px;width:36px;height:36px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center">←</button>
+      <input type="text" id="nb-page-name" oninput="markNbDirty()" placeholder="Page title…" style="flex:1;background:rgba(255,255,255,0.15);border:none;border-radius:8px;padding:8px 12px;font-size:16px;font-weight:700;color:#fff;outline:none;font-family:'Fraunces',serif;" />
+      <span id="nb-save-status" style="font-size:11px;color:rgba(255,255,255,0.75);white-space:nowrap">Saved</span>
       <button onclick="submitNbPage()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer">💾 Save</button>
     </div>
     <!-- Rich toolbar -->
@@ -1922,7 +1994,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <input type="file" id="attach-pdf-nbpage" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('nbpage',this,'pdf')"/>
     </div>
     <!-- Editor -->
-    <div id="nb-page-editor" class="rich-editable" contenteditable="true"
+    <div id="nb-page-editor" class="rich-editable" contenteditable="true" oninput="markNbDirty()"
       style="flex:1;border:none;border-radius:0;overflow-y:auto;font-size:16px;padding:20px;min-height:0;-webkit-overflow-scrolling:touch"></div>
   </div>
 </div>
@@ -2797,6 +2869,7 @@ async function handleAttachFiles(key, inputEl, kind){
     }catch(e){console.error(e);toast('❌ Could not attach '+f.name);}
   }
   renderAttachUI(key);
+  if(key==='nbpage')markNbDirty();
 }
 
 async function captureScreenshot(key){
@@ -2821,6 +2894,7 @@ async function captureScreenshot(key){
       dataUrl, addedAt:new Date().toISOString()
     });
     renderAttachUI(key);
+    if(key==='nbpage')markNbDirty();
     toast('📸 Screenshot attached');
   }catch(e){
     if(e.name!=='NotAllowedError') toast('❌ Screenshot failed: '+e.message);
@@ -2832,6 +2906,7 @@ async function captureScreenshot(key){
 function removeAttach(key,id){
   attachStage[key]=(attachStage[key]||[]).filter(a=>a.id!==id);
   renderAttachUI(key);
+  if(key==='nbpage')markNbDirty();
 }
 
 function viewAttachment(key,id){
@@ -3331,7 +3406,7 @@ function performLockExit(){
   saveEntryInMemory();
   saveToDrive().then(doLock).catch(doLock);
 }
-async function downloadEncFile(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await buildSaveBlob();const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();URL.revokeObjectURL(url);toast('⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
+async function downloadEncFileOnline(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await buildSaveBlob();const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();URL.revokeObjectURL(url);toast('⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
 function exportJSON(){if(!storage)return;const url=URL.createObjectURL(new Blob([JSON.stringify(storage,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_backup.json';a.click();URL.revokeObjectURL(url);toast('📤 JSON exported');closeMoreMenu();}
 
 // ── LAUNCH APP ──
@@ -3772,6 +3847,73 @@ function renderCal(){
 function renderCalHighlights(){if(storage){renderCal();if(currentPanel==='calendar')renderCalPanel();}}
 function jumpToDate(ds){currentDate=ds;document.getElementById('header-date-sub').textContent=fmtDate(ds);renderCal();loadDiaryEntry();if(currentPanel!=='diary')navTo('diary');}
 
+// Wraps occurrences of the search terms in <mark> inside an element's text content
+// (walks text nodes so it never touches tag attributes like onclick=""). Used after
+// jumping to a search result so the exact matched word(s) are visibly highlighted,
+// not just the row.
+function highlightTermsInElement(el,raw){
+  if(!el||!raw)return;
+  // clear any highlight left over from a previous jump
+  el.querySelectorAll('mark.search-term-hl').forEach(m=>{
+    const parent=m.parentNode;
+    if(parent){parent.replaceChild(document.createTextNode(m.textContent),m);parent.normalize();}
+  });
+  const quoteMatch=raw.match(/^"(.+)"$/);
+  const terms=(quoteMatch?[quoteMatch[1]]:raw.split(/\s+/)).filter(Boolean);
+  if(!terms.length)return;
+  const regexes=terms.map(t=>{
+    try{return new RegExp('('+t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig');}catch(e){return null;}
+  }).filter(Boolean);
+  if(!regexes.length)return;
+  const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT,null);
+  const textNodes=[];
+  let node;
+  while(node=walker.nextNode()){
+    if(node.nodeValue&&node.nodeValue.trim()&&node.parentElement&&node.parentElement.tagName!=='MARK'&&node.parentElement.tagName!=='SCRIPT'&&node.parentElement.tagName!=='STYLE'){
+      textNodes.push(node);
+    }
+  }
+  textNodes.forEach(tn=>{
+    const text=tn.nodeValue;
+    let matched=false;
+    regexes.forEach(re=>{re.lastIndex=0;if(re.test(text))matched=true;});
+    if(!matched)return;
+    let html=escH(text);
+    regexes.forEach(re=>{
+      re.lastIndex=0;
+      html=html.replace(re,'<mark class="search-term-hl">$1</mark>');
+    });
+    const span=document.createElement('span');
+    span.innerHTML=html;
+    tn.parentNode.replaceChild(span,tn);
+  });
+}
+
+// ── Generic "jump to exact item" helper used by Search results ──
+// Navigates to a panel, then scrolls the specific element into view, flashes it,
+// and highlights the matched search term(s) inside it — so tapping a search result
+// lands directly on that line, with the hit itself lit up, instead of just the panel.
+function goToItem(panel,elId,query,opts){
+  opts=opts||{};
+  if(currentPanel!==panel)navTo(panel);
+  const tries=opts.tries||6;
+  (function attempt(n){
+    const el=document.getElementById(elId);
+    if(el){
+      el.scrollIntoView({behavior:'smooth',block:'center'});
+      el.classList.remove('search-flash');
+      // restart animation even if already applied recently
+      void el.offsetWidth;
+      el.classList.add('search-flash');
+      setTimeout(()=>el.classList.remove('search-flash'),3300);
+      if(query)highlightTermsInElement(el,query.startsWith('#')?query.slice(1):query);
+    } else if(n>0){
+      // element not painted yet (e.g. right after render) — retry a few times
+      setTimeout(()=>attempt(n-1),80);
+    }
+  })(tries);
+}
+
 // ── CALENDAR PANEL (full smart calendar) ──
 let calPanelDate=new Date();
 let calPanelSelected=todayStr();
@@ -3793,6 +3935,7 @@ function renderCalPanel(){
     const overdueTask=(storage&&storage.todos||[]).some(t=>t.due===ds&&!t.done&&ds<today);
     const isToday=ds===today,isSel=ds===calPanelSelected;
     const hasExpense=(storage&&storage.expenses||[]).some(e=>e.date===ds);
+    const dayOccasions=occasionsOnDate(ds);
     let bg='var(--surface)',color='var(--text)',border='1px solid var(--border)',fw='400';
     if(isToday){bg='var(--primary)';color='#fff';border='none';fw='700';}
     else if(isSel){bg='var(--primary-light)';color='var(--primary)';border='2px solid var(--primary)';fw='700';}
@@ -3806,6 +3949,7 @@ function renderCalPanel(){
         ${hasEntry?`<span title="Diary entry" style="width:6px;height:6px;border-radius:50%;background:${isToday?'rgba(255,255,255,0.8)':'var(--primary)'}"></span>`:''}
         ${tasksDue.length?`<span title="${tasksDue.length} task(s) due" style="width:6px;height:6px;border-radius:50%;background:${overdueTask?'var(--danger)':(isToday?'rgba(255,255,255,0.8)':'var(--accent)')}"></span>`:''}
         ${hasExpense?`<span title="Expense" style="width:6px;height:6px;border-radius:50%;background:${isToday?'rgba(255,255,255,0.6)':'var(--gold)'}"></span>`:''}
+        ${dayOccasions.length?`<span title="${dayOccasions.length} birthday/anniversary" style="width:6px;height:6px;border-radius:50%;background:${isToday?'#fff':'#e91e8c'}"></span>`:''}
       </div>
     </div>`;
   }
@@ -3835,6 +3979,21 @@ function renderCalPanelDayDetail(ds){
       <div style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:4px">📓 DIARY ENTRY</div>
       <div style="font-size:13px;color:var(--text-mid);line-height:1.6">${escH(snippet)}${snippet.length>=120?'…':''}</div>
       <div style="font-size:11px;color:var(--primary);margin-top:6px;font-weight:600">Tap to open →</div>
+    </div>`);
+  }
+  // Birthdays & anniversaries
+  const dayOccasions=occasionsOnDate(ds);
+  if(dayOccasions.length){
+    const occHtml=dayOccasions.map(o=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:16px">${o.occasion==='birthday'?'🎂':'💍'}</span>
+        <span style="flex:1;font-size:13px;font-weight:600">${escH(o.contact.name)}</span>
+        <span style="font-size:11px;color:var(--text-muted)">${o.occasion==='birthday'?'Birthday':'Anniversary'}</span>
+        <button class="icon-btn" title="Send wishes" onclick="openSendWishesModal('${o.contact.id}','${o.occasion}')">💌</button>
+      </div>`).join('');
+    parts.push(`<div class="card">
+      <div style="font-size:11px;font-weight:700;color:#e91e8c;margin-bottom:6px">🎉 BIRTHDAYS & ANNIVERSARIES (${dayOccasions.length})</div>
+      ${occHtml}
     </div>`);
   }
   // Tasks due
@@ -3878,6 +4037,7 @@ function renderCalPanelDayDetail(ds){
     <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block"></span>Task due</span>
     <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--danger);display:inline-block"></span>Overdue</span>
     <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--gold);display:inline-block"></span>Expense</span>
+    <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:#e91e8c;display:inline-block"></span>Birthday/Anniversary</span>
   </div>`);
   container.innerHTML=parts.join('');
 }
@@ -3918,9 +4078,11 @@ function renderTasks(){
   if(taskFilter==='pending')list=tasks.filter(t=>!t.done);
   if(taskFilter==='done')list=tasks.filter(t=>t.done);
   if(taskFilter==='overdue')list=tasks.filter(t=>!t.done&&t.due&&t.due<today);
+  const tq=(document.getElementById('task-search')?.value||'').toLowerCase().trim();
+  if(tq)list=list.filter(t=>(t.text||'').toLowerCase().includes(tq)||(t.tags||[]).some(g=>g.toLowerCase().includes(tq)));
   const pMap={high:'🔴',med:'🟡',low:'🟢',normal:''};
   document.getElementById('task-list').innerHTML=list.length?list.map(t=>`
-    <div class="card" style="display:flex;align-items:flex-start;gap:12px;${t.done?'opacity:0.55':''}">
+    <div class="card" id="task-${t.id}" style="display:flex;align-items:flex-start;gap:12px;${t.done?'opacity:0.55':''}">
       <input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')" style="width:20px;height:20px;margin-top:2px;cursor:pointer;accent-color:var(--primary)"/>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:15px;${t.done?'text-decoration:line-through':''}">${pMap[t.priority]||''} ${escH(t.text)}</div>
@@ -3951,14 +4113,16 @@ function submitTask(){
 
 // ── CHECKLISTS ──
 function renderChecklists(){
-  const lists=storage.lists||[];
+  let lists=storage.lists||[];
   const today=todayStr();
+  const clq=(document.getElementById('cl-search')?.value||'').toLowerCase().trim();
+  if(clq)lists=lists.filter(l=>(l.name||'').toLowerCase().includes(clq)||(l.items||[]).some(i=>(i.text||'').toLowerCase().includes(clq)));
   document.getElementById('checklists-container').innerHTML=lists.length?lists.map(l=>{
     const total=(l.items||[]).length,done=(l.items||[]).filter(i=>i.done).length;
     const pct=total?Math.round(done/total*100):0;
     const isOverdue=l.due&&l.due<today&&done<total;
     const isDueToday=l.due&&l.due===today&&done<total;
-    return `<div class="checklist-card">
+    return `<div class="checklist-card" id="cl-${l.id}">
       <div class="checklist-title">
         <span style="flex:1">${escH(l.name)}</span>
         ${l.due?`<span style="font-size:11px;font-weight:700;color:${isOverdue?'var(--danger)':isDueToday?'var(--warning)':'var(--text-muted)'};margin-right:6px">${isOverdue?'⚠ Overdue':isDueToday?'📅 Due Today':'📅 '+fmtDate(l.due)}</span>`:''}
@@ -3968,7 +4132,7 @@ function renderChecklists(){
       </div>
       <div class="cl-progress"><div class="cl-bar" style="width:${pct}%"></div></div>
       ${(l.items||[]).map(item=>`
-        <div class="cl-item${item.done?' done':''}">
+        <div class="cl-item${item.done?' done':''}" id="cl-item-${item.id}">
           <input type="checkbox" ${item.done?'checked':''} onchange="toggleCLItem('${l.id}','${item.id}')"/>
           <span style="flex:1">${escH(item.text)}</span>
           ${item.attachments&&item.attachments.length?`<span onclick="viewSavedAttachments(storage.lists.find(x=>x.id==='${l.id}').items.find(i=>i.id==='${item.id}').attachments)" style="cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600">📎${item.attachments.length}</span>`:''}
@@ -4043,6 +4207,8 @@ function renderExpenses(){
   if(from)exps=exps.filter(e=>e.date>=from);
   if(to)exps=exps.filter(e=>e.date<=to);
   if(catF)exps=exps.filter(e=>(e.category||'').toLowerCase().includes(catF));
+  const expQ=(document.getElementById('exp-search')?.value||'').toLowerCase().trim();
+  if(expQ)exps=exps.filter(e=>[(e.note||''),(e.category||''),(e.mode||''),(e.account||'')].some(v=>v.toLowerCase().includes(expQ)));
   exps=[...exps].sort((a,b)=>b.date.localeCompare(a.date));
   const allExps=storage.expenses||[];
   const total=exps.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
@@ -4050,7 +4216,7 @@ function renderExpenses(){
   const spend=exps.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   document.getElementById('exp-summary').innerHTML=`<div class="stat-card"><div class="stat-num" style="color:${total>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(total).toFixed(0)}</div><div class="stat-label">Net</div></div><div class="stat-card"><div class="stat-num" style="color:var(--accent)">₹${income.toFixed(0)}</div><div class="stat-label">Income</div></div><div class="stat-card"><div class="stat-num" style="color:var(--danger)">₹${Math.abs(spend).toFixed(0)}</div><div class="stat-label">Spent</div></div><div class="stat-card"><div class="stat-num">${exps.length}</div><div class="stat-label">Entries</div></div>`;
   document.getElementById('exp-list').innerHTML=exps.length?exps.map(e=>`
-    <div class="card" style="display:flex;align-items:center;gap:12px">
+    <div class="card" id="exp-${e.id}" style="display:flex;align-items:center;gap:12px">
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:14px">${escH(e.category||'—')}</div>
         <div style="font-size:11px;color:var(--text-muted)">${fmtDate(e.date)} · ${escH(e.mode||'')}${e.account?' · '+escH(e.account):''}</div>
@@ -4082,6 +4248,15 @@ function exportExpenseCSV(){
 }
 
 // ── EXPENSE REPORT ──
+let reportMode='month'; // 'month' | 'range'
+function setReportMode(mode){
+  reportMode=mode;
+  document.getElementById('rep-mode-month').classList.toggle('active',mode==='month');
+  document.getElementById('rep-mode-range').classList.toggle('active',mode==='range');
+  document.getElementById('rep-month-controls').style.display=mode==='month'?'flex':'none';
+  document.getElementById('rep-range-controls').style.display=mode==='range'?'flex':'none';
+  renderReport();
+}
 function renderReport(){
   const exps=storage.expenses||[];
   // populate month/year selectors
@@ -4099,10 +4274,33 @@ function renderReport(){
     years.sort((a,b)=>b-a).forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;yearSel.appendChild(o);});
     yearSel.value=now.getFullYear();
   }
-  const selMonth=String(monthSel.value).padStart(2,'0');
-  const selYear=yearSel.value;
-  const prefix=`${selYear}-${selMonth}`;
-  const filtered=exps.filter(e=>e.date&&e.date.startsWith(prefix));
+  // populate account/category dropdowns from managed lists + observed values
+  const sl=storage.expLists||{};
+  const allCats=[...new Set([...(sl.cats||[]),...exps.map(e=>e.category).filter(Boolean)])];
+  const allAccs=[...new Set([...(sl.accs||[]),...exps.map(e=>e.account).filter(Boolean)])];
+  const accSel=document.getElementById('rep-account'),catSel=document.getElementById('rep-category');
+  if(accSel){const cur=accSel.value;accSel.innerHTML='<option value="">All accounts</option>'+allAccs.map(a=>`<option value="${escH(a)}">${escH(a)}</option>`).join('');accSel.value=cur;}
+  if(catSel){const cur=catSel.value;catSel.innerHTML='<option value="">All categories</option>'+allCats.map(c=>`<option value="${escH(c)}">${escH(c)}</option>`).join('');catSel.value=cur;}
+
+  // Determine date range from selected mode
+  let repFrom,repTo,rangeLabel;
+  if(reportMode==='range'){
+    repFrom=document.getElementById('rep-from')?.value||'';
+    repTo=document.getElementById('rep-to')?.value||'';
+    rangeLabel=(repFrom?fmtDate(repFrom):'…')+' – '+(repTo?fmtDate(repTo):'…');
+  } else {
+    const selMonth=String(monthSel.value).padStart(2,'0');
+    const selYear=yearSel.value;
+    const daysInMonth=new Date(selYear,parseInt(selMonth),0).getDate();
+    repFrom=`${selYear}-${selMonth}-01`;
+    repTo=`${selYear}-${selMonth}-${String(daysInMonth).padStart(2,'0')}`;
+    rangeLabel=new Date(selYear,selMonth-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+  }
+  const accF=accSel?.value||'', catF=catSel?.value||'';
+  let filtered=exps.filter(e=>e.date&&(!repFrom||e.date>=repFrom)&&(!repTo||e.date<=repTo));
+  if(accF)filtered=filtered.filter(e=>(e.account||'')===accF);
+  if(catF)filtered=filtered.filter(e=>(e.category||'')===catF);
+
   const spent=filtered.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+Math.abs(parseFloat(e.amount)||0),0);
   const income=filtered.filter(e=>parseFloat(e.amount)>0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   const net=income-spent;
@@ -4113,37 +4311,194 @@ function renderReport(){
     `<div class="stat-card"><div class="stat-num" style="color:${net>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(net).toFixed(0)}</div><div class="stat-label">Net</div></div>`+
     `<div class="stat-card"><div class="stat-num">${txCount}</div><div class="stat-label">Entries</div></div>`;
 
-  // Category chart (spending only)
+  // Group-by chart (spending only) — grouped by whichever field the user picked
+  const groupBy=document.getElementById('rep-groupby')?.value||'category';
+  const GROUP_LABELS={category:'Category',account:'Account',mode:'Payment Mode',date:'Date',month:'Month'};
+  function groupKeyFor(e){
+    if(groupBy==='account')return e.account||'—';
+    if(groupBy==='mode')return e.mode||'—';
+    if(groupBy==='date')return e.date;
+    if(groupBy==='month')return e.date?e.date.slice(0,7):'—';
+    return e.category||'Other';
+  }
+  function groupKeyDisplay(k){
+    if(groupBy==='date')return fmtDate(k);
+    if(groupBy==='month'){const [y,m]=k.split('-');return new Date(y,m-1,1).toLocaleDateString('en-IN',{month:'short',year:'numeric'});}
+    return k;
+  }
+  document.getElementById('rep-chart-title').textContent='💰 Spending by '+GROUP_LABELS[groupBy];
+  document.getElementById('rep-table-title').textContent='📋 '+GROUP_LABELS[groupBy]+' Breakdown';
   const catMap={};
-  filtered.filter(e=>parseFloat(e.amount)<0).forEach(e=>{const c=e.category||'Other';catMap[c]=(catMap[c]||0)+Math.abs(parseFloat(e.amount)||0);});
-  const catEntries=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
-  const maxCat=catEntries.length?catEntries[0][1]:1;
+  filtered.filter(e=>parseFloat(e.amount)<0).forEach(e=>{const c=groupKeyFor(e);catMap[c]=(catMap[c]||0)+Math.abs(parseFloat(e.amount)||0);});
+  const catEntries=Object.entries(catMap).sort((a,b)=>groupBy==='date'||groupBy==='month'?a[0].localeCompare(b[0]):b[1]-a[1]);
+  const maxCat=catEntries.length?Math.max(...catEntries.map(e=>e[1])):1;
   const catColors=['#1a3a6b','#1565c0','#0097a7','#00897b','#558b2f','#f57f17','#e65100','#c62828','#6a1b9a','#4527a0'];
   document.getElementById('rep-cat-chart').innerHTML=catEntries.length?catEntries.map(([cat,amt],i)=>`
     <div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
-        <span style="font-weight:600">${escH(cat)}</span>
+        <span style="font-weight:600">${escH(groupKeyDisplay(cat))}</span>
         <span style="font-family:monospace;color:var(--danger)">₹${amt.toFixed(0)}</span>
       </div>
       <div style="background:var(--surface3);border-radius:4px;height:10px;overflow:hidden">
         <div style="height:100%;border-radius:4px;background:${catColors[i%catColors.length]};width:${(amt/maxCat*100).toFixed(1)}%;transition:width 0.4s"></div>
       </div>
-    </div>`).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No spending this month</div>';
+    </div>`).join(''):`<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No spending in ${escH(rangeLabel)}</div>`;
 
-  // Daily spending chart
-  const daysInMonth=new Date(selYear,parseInt(selMonth),0).getDate();
+  // Daily spending chart — bucket by actual date across the whole selected range
   const dailyMap={};
-  filtered.filter(e=>parseFloat(e.amount)<0).forEach(e=>{const d=parseInt(e.date.slice(8,10));dailyMap[d]=(dailyMap[d]||0)+Math.abs(parseFloat(e.amount)||0);});
-  const maxDay=Math.max(...Object.values(dailyMap),1);
-  const dayBars=Array.from({length:daysInMonth},(_,i)=>{const d=i+1,amt=dailyMap[d]||0;return`<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:18px;cursor:default" title="Day ${d}: ₹${amt.toFixed(0)}"><div style="width:14px;background:${amt>0?'var(--primary)':'var(--border)'};border-radius:3px 3px 0 0;height:${amt>0?Math.max(4,(amt/maxDay*80)).toFixed(0):2}px;transition:height 0.3s"></div><div style="font-size:8px;color:var(--text-muted)">${d}</div></div>`;}).join('');
+  filtered.filter(e=>parseFloat(e.amount)<0).forEach(e=>{dailyMap[e.date]=(dailyMap[e.date]||0)+Math.abs(parseFloat(e.amount)||0);});
+  let dayBars='';
+  if(repFrom&&repTo){
+    const start=new Date(repFrom+'T00:00:00'),end=new Date(repTo+'T00:00:00');
+    const maxDay=Math.max(...Object.values(dailyMap),1);
+    const cursor=new Date(start);
+    const bars=[];
+    while(cursor<=end){
+      const ds=cursor.toISOString().slice(0,10);
+      const amt=dailyMap[ds]||0;
+      bars.push(`<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:18px;cursor:default" title="${fmtDate(ds)}: ₹${amt.toFixed(0)}"><div style="width:14px;background:${amt>0?'var(--primary)':'var(--border)'};border-radius:3px 3px 0 0;height:${amt>0?Math.max(4,(amt/maxDay*80)).toFixed(0):2}px;transition:height 0.3s"></div><div style="font-size:8px;color:var(--text-muted)">${cursor.getDate()}</div></div>`);
+      cursor.setDate(cursor.getDate()+1);
+    }
+    dayBars=bars.join('');
+  }
   document.getElementById('rep-daily-chart').innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;height:100px;padding:4px 0">${dayBars}</div>`;
 
-  // Category table
+  // Group-by table
   document.getElementById('rep-cat-table').innerHTML=catEntries.length?`
     <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Category</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">Amount</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">%</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">#</th></tr></thead>
-      <tbody>${catEntries.map(([cat,amt])=>{const count=filtered.filter(e=>(e.category||'Other')===cat&&parseFloat(e.amount)<0).length;return`<tr style="border-bottom:1px solid var(--border)"><td style="padding:7px 4px;font-weight:600">${escH(cat)}</td><td style="text-align:right;padding:7px 4px;color:var(--danger);font-family:monospace">₹${amt.toFixed(0)}</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${spent>0?(amt/spent*100).toFixed(1):0}%</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${count}</td></tr>`;}).join('')}</tbody>
+      <thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 4px;color:var(--text-muted)">${escH(GROUP_LABELS[groupBy])}</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">Amount</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">%</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">#</th></tr></thead>
+      <tbody>${catEntries.map(([cat,amt])=>{const count=filtered.filter(e=>groupKeyFor(e)===cat&&parseFloat(e.amount)<0).length;return`<tr style="border-bottom:1px solid var(--border)"><td style="padding:7px 4px;font-weight:600">${escH(groupKeyDisplay(cat))}</td><td style="text-align:right;padding:7px 4px;color:var(--danger);font-family:monospace">₹${amt.toFixed(0)}</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${spent>0?(amt/spent*100).toFixed(1):0}%</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${count}</td></tr>`;}).join('')}</tbody>
     </table>`:'<div style="color:var(--text-muted);font-size:13px">No data</div>';
+
+  // Individual transaction lines (respects all active filters)
+  const sortedTxns=[...filtered].sort((a,b)=>b.date.localeCompare(a.date));
+  document.getElementById('rep-txn-count').textContent=sortedTxns.length;
+  document.getElementById('rep-txn-table').innerHTML=sortedTxns.length?`
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <thead><tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Date</th>
+        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Category</th>
+        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Account</th>
+        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Mode</th>
+        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Note</th>
+        <th style="text-align:right;padding:6px 4px;color:var(--text-muted)">Amount</th>
+      </tr></thead>
+      <tbody>${sortedTxns.map(e=>{const amt=parseFloat(e.amount)||0;return`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 4px;white-space:nowrap;font-family:monospace">${fmtDate(e.date)}</td>
+        <td style="padding:6px 4px">${escH(e.category||'—')}</td>
+        <td style="padding:6px 4px">${escH(e.account||'—')}</td>
+        <td style="padding:6px 4px">${escH(e.mode||'—')}</td>
+        <td style="padding:6px 4px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(e.note||'')}</td>
+        <td style="text-align:right;padding:6px 4px;font-family:monospace;font-weight:700;color:${amt>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(amt).toFixed(0)}</td>
+      </tr>`;}).join('')}</tbody>
+    </table>`:'<div style="color:var(--text-muted);font-size:13px">No transactions in this range</div>';
+
+  // Stash the currently filtered set + range label + group-by info for export
+  window._reportFiltered=filtered;
+  window._reportRangeLabel=rangeLabel;
+  window._reportGroupBy=groupBy;
+  window._reportGroupEntries=catEntries.map(([k,v])=>[groupKeyDisplay(k),v]);
+  window._reportGroupLabel=GROUP_LABELS[groupBy];
+}
+function exportReportCSV(){
+  const exps=window._reportFiltered||[];
+  if(!exps.length)return toast('No data in this report to export');
+  const rows=[['Date','Category','Amount','Mode','Account','Note']];
+  [...exps].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>rows.push([e.date,e.category||'',e.amount,e.mode||'',e.account||'',e.note||'']));
+  const spent=exps.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+Math.abs(parseFloat(e.amount)||0),0);
+  const income=exps.filter(e=>parseFloat(e.amount)>0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  rows.push([]);
+  rows.push(['Period',window._reportRangeLabel||'']);
+  rows.push(['Total Income',income.toFixed(2)]);
+  rows.push(['Total Spent',spent.toFixed(2)]);
+  rows.push(['Net',(income-spent).toFixed(2)]);
+  const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  const a=document.createElement('a');a.href=url;a.download=(currentDiaryName||'diary')+'_report.csv';a.click();URL.revokeObjectURL(url);toast('⬇ Report exported');
+}
+
+// ── EXCEL EXPORT (uses the SheetJS/XLSX library already loaded for contact import) ──
+function exportReportExcel(){
+  const exps=window._reportFiltered||[];
+  if(!exps.length)return toast('No data in this report to export');
+  if(typeof XLSX==='undefined')return toast('❌ Excel library not loaded — check your connection and try again');
+  const spent=exps.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+Math.abs(parseFloat(e.amount)||0),0);
+  const income=exps.filter(e=>parseFloat(e.amount)>0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+
+  // Sheet 1: individual transaction lines
+  const txnRows=[...exps].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>({
+    Date:e.date, Category:e.category||'', Account:e.account||'', Mode:e.mode||'',
+    Note:e.note||'', Amount:parseFloat(e.amount)||0
+  }));
+  const wsTxns=XLSX.utils.json_to_sheet(txnRows);
+
+  // Sheet 2: group-by breakdown (whatever grouping is currently selected)
+  const groupRows=(window._reportGroupEntries||[]).map(([k,v])=>({[window._reportGroupLabel||'Group']:k, Amount:v}));
+  const wsGroup=XLSX.utils.json_to_sheet(groupRows);
+
+  // Sheet 3: summary
+  const wsSummary=XLSX.utils.json_to_sheet([
+    {Field:'Period',Value:window._reportRangeLabel||''},
+    {Field:'Total Income',Value:income},
+    {Field:'Total Spent',Value:spent},
+    {Field:'Net',Value:income-spent},
+    {Field:'Entries',Value:exps.length}
+  ]);
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,wsTxns,'Transactions');
+  XLSX.utils.book_append_sheet(wb,wsGroup,(window._reportGroupLabel||'Group')+' Breakdown');
+  XLSX.utils.book_append_sheet(wb,wsSummary,'Summary');
+  XLSX.writeFile(wb,(currentDiaryName||'diary')+'_report.xlsx');
+  toast('📊 Excel report exported');
+}
+
+// ── PDF EXPORT (opens a clean printable version; use the browser's "Save as PDF" print destination) ──
+function exportReportPDF(){
+  const exps=window._reportFiltered||[];
+  if(!exps.length)return toast('No data in this report to export');
+  const spent=exps.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+Math.abs(parseFloat(e.amount)||0),0);
+  const income=exps.filter(e=>parseFloat(e.amount)>0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  const sorted=[...exps].sort((a,b)=>a.date.localeCompare(b.date));
+  const groupRows=window._reportGroupEntries||[];
+  const groupLabel=window._reportGroupLabel||'Category';
+
+  const win=window.open('','_blank');
+  if(!win)return toast('❌ Pop-up blocked — allow pop-ups to export PDF');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Expense Report</title>
+  <style>
+    body{font-family:'DM Sans',Arial,sans-serif;color:#1a1f36;padding:24px;max-width:900px;margin:0 auto}
+    h1{font-family:Georgia,serif;font-size:22px;color:#1a3a6b;margin-bottom:2px}
+    .sub{color:#7b82a0;font-size:13px;margin-bottom:20px}
+    .stats{display:flex;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+    .stat{border:1px solid #dde3f0;border-radius:8px;padding:10px 16px;text-align:center;flex:1;min-width:100px}
+    .stat b{display:block;font-size:18px}
+    table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:26px}
+    th,td{padding:6px 8px;text-align:left;border-bottom:1px solid #e5e8f0}
+    th{background:#f5f7fc;color:#7b82a0;font-size:11px;text-transform:uppercase}
+    td.amt,th.amt{text-align:right;font-family:monospace}
+    h2{font-size:15px;color:#1a3a6b;margin:0 0 10px}
+    @media print{ body{padding:0} }
+  </style></head><body>
+    <h1>💰 Expense Report</h1>
+    <div class="sub">${escH(currentDiaryName||'Diary')} · ${escH(window._reportRangeLabel||'')} · Generated ${fmtDate(todayStr())}</div>
+    <div class="stats">
+      <div class="stat"><b style="color:#c62828">₹${spent.toFixed(0)}</b>Spent</div>
+      <div class="stat"><b style="color:#00897b">₹${income.toFixed(0)}</b>Income</div>
+      <div class="stat"><b>₹${Math.abs(income-spent).toFixed(0)}</b>Net</div>
+      <div class="stat"><b>${exps.length}</b>Entries</div>
+    </div>
+    <h2>${escH(groupLabel)} Breakdown</h2>
+    <table><thead><tr><th>${escH(groupLabel)}</th><th class="amt">Amount</th></tr></thead><tbody>
+      ${groupRows.map(([k,v])=>`<tr><td>${escH(k)}</td><td class="amt">₹${v.toFixed(0)}</td></tr>`).join('')}
+    </tbody></table>
+    <h2>Transaction Detail</h2>
+    <table><thead><tr><th>Date</th><th>Category</th><th>Account</th><th>Mode</th><th>Note</th><th class="amt">Amount</th></tr></thead><tbody>
+      ${sorted.map(e=>`<tr><td>${escH(fmtDate(e.date))}</td><td>${escH(e.category||'—')}</td><td>${escH(e.account||'—')}</td><td>${escH(e.mode||'—')}</td><td>${escH(e.note||'')}</td><td class="amt">₹${Math.abs(parseFloat(e.amount)||0).toFixed(0)}</td></tr>`).join('')}
+    </tbody></table>
+    <script>window.onload=()=>{window.print();};<\/script>
+  </body></html>`);
+  win.document.close();
 }
 function editExpense(id){
   const e=storage.expenses.find(x=>x.id===id);if(!e)return;
@@ -4314,7 +4669,7 @@ function renderContacts(){
   document.getElementById('contacts-list').innerHTML=cs.length?cs.map(c=>{
     const todays=todaysSpecialOccasions(c);
     return `
-    <div class="card" style="display:flex;align-items:center;gap:12px">
+    <div class="card" id="contact-${c.id}" style="display:flex;align-items:center;gap:12px">
       <div style="width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">${escH((c.name||'?')[0].toUpperCase())}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:14px">${escH(c.name)}${c.alias?` <span style="font-weight:500;color:var(--text-muted)">“${escH(c.alias)}”</span>`:''}</div>
@@ -4344,6 +4699,16 @@ function todaysSpecialOccasions(c){
   const out=[];
   if(c.birthday&&c.birthday.slice(5)===t)out.push('birthday');
   if(c.anniversary&&c.anniversary.slice(5)===t)out.push('anniversary');
+  return out;
+}
+// Returns [{contact, occasion}] for any contact whose birthday/anniversary falls on date ds (MM-DD match, any year)
+function occasionsOnDate(ds){
+  const mmdd=ds.slice(5);
+  const out=[];
+  (storage&&storage.contacts||[]).forEach(c=>{
+    if(c.birthday&&c.birthday.slice(5)===mmdd)out.push({contact:c,occasion:'birthday'});
+    if(c.anniversary&&c.anniversary.slice(5)===mmdd)out.push({contact:c,occasion:'anniversary'});
+  });
   return out;
 }
 function editContact(id){const c=storage.contacts.find(x=>x.id===id);if(!c)return;editingContactId=id;document.getElementById('contact-name').value=c.name;document.getElementById('contact-phone').value=c.phone||'';document.getElementById('contact-email').value=c.email||'';document.getElementById('contact-relation').value=c.relation||'';document.getElementById('contact-alias').value=c.alias||'';document.getElementById('contact-birthday').value=c.birthday||'';document.getElementById('contact-anniversary').value=c.anniversary||'';document.getElementById('contact-company').value=c.company||'';document.getElementById('contact-whatsapp').value=c.whatsapp||'';document.getElementById('contact-website').value=c.website||'';document.getElementById('contact-address').value=c.address||'';document.getElementById('contact-remark').value=c.note||'';initAttachUI('contact',c.attachments);openModal('modal-contact');}
@@ -4490,9 +4855,11 @@ const NOTE_COLORS=['#fff9c4','#f8bbd0','#b3e5fc','#c8e6c9','#ffe0b2','#e1bee7','
 function initNoteColorPicker(){const row=document.getElementById('note-color-picker');if(!row||row.children.length)return;NOTE_COLORS.forEach((c,i)=>{const s=document.createElement('div');s.className='color-swatch'+(i===0?' sel':'');s.style.background=c;s.dataset.color=c;s.onclick=()=>pickNoteColor(s,c);row.appendChild(s);});}
 function renderNotes(){
   initNoteColorPicker();
-  const notes=storage.sticky_notes||[];
+  let notes=storage.sticky_notes||[];
+  const nq=(document.getElementById('note-search')?.value||'').toLowerCase().trim();
+  if(nq)notes=notes.filter(n=>(n.text||'').toLowerCase().replace(/<[^>]+>/g,' ').includes(nq)||(n.tags||[]).some(t=>t.toLowerCase().includes(nq)));
   document.getElementById('notes-grid').innerHTML=notes.length?notes.map(n=>`
-    <div class="note-card" style="background:${n.color||'#fff9c4'}">
+    <div class="note-card" id="note-${n.id}" style="background:${n.color||'#fff9c4'}">
       <div style="font-size:13px;line-height:1.6;word-break:break-word;flex:1">${n.text}</div>
       <div style="display:flex;justify-content:flex-end;gap:4px;margin-top:8px">
         <button class="icon-btn edit" onclick="editNote('${n.id}')">✏️</button>
@@ -4543,7 +4910,16 @@ function migrateNotebooks(){
 function renderNotebooks(){
   migrateNotebooks();
   const nbs=storage.notebooks||{};
-  const keys=Object.keys(nbs);
+  let keys=Object.keys(nbs);
+  const nbq=(document.getElementById('nb-search')?.value||'').toLowerCase().trim();
+  if(nbq){
+    keys=keys.filter(k=>{
+      const nb=nbs[k];
+      if((nb.name||'').toLowerCase().includes(nbq))return true;
+      if(nb.locked&&!_nbUnlockedIds.has(k))return false; // don't search inside locked notebooks
+      return Object.values(nb.pages||{}).some(p=>(p.title||'').toLowerCase().includes(nbq)||(p.content||'').toLowerCase().replace(/<[^>]+>/g,' ').includes(nbq));
+    });
+  }
   document.getElementById('notebook-list').innerHTML=keys.length?keys.map(k=>{
     const nb=nbs[k];
     const icon=nb.icon||'📒';
@@ -4704,11 +5080,14 @@ async function submitNbUnlock(){
   }
 }
 
-// ── Page editing (full-screen) ──
+// ── Page editing (full-screen, with autosave) ──
+let nbDirty=false, nbAutoSaveTimer=null;
 function addNbPage(nbId){
-  editingNbNotebook=nbId;editingNbPage=null;
+  editingNbNotebook=nbId;editingNbPage=uuid(); // pre-generate id so autosave has something to target from the first keystroke
+  nbDirty=false;
   document.getElementById('nb-page-name').value='';
   document.getElementById('nb-page-editor').innerHTML='';
+  document.getElementById('nb-save-status').textContent='Saved';
   initAttachUI('nbpage',[]);
   openModal('modal-nb-page');
   setTimeout(()=>document.getElementById('nb-page-name').focus(),200);
@@ -4718,9 +5097,11 @@ function editNbPage(nbId,pageId){
   if(!nb)return;
   if(nb.locked&&!_nbUnlockedIds.has(nbId)){openNbUnlock(nbId,'pages');return;}
   editingNbNotebook=nbId;editingNbPage=pageId;
+  nbDirty=false;
   const p=nb.pages[pageId];
   document.getElementById('nb-page-name').value=p?.title||'';
   document.getElementById('nb-page-editor').innerHTML=p?.content||'';
+  document.getElementById('nb-save-status').textContent='Saved';
   initAttachUI('nbpage',p?.attachments);
   openModal('modal-nb-page');
   setTimeout(()=>document.getElementById('nb-page-name').focus(),100);
@@ -4730,24 +5111,61 @@ function deleteNbPage(nbId,pageId){
   delete storage.notebooks[nbId].pages[pageId];
   renderNotebooks();saveToDrive();
 }
-function submitNbPage(){
+// Writes the current editor content into the in-memory storage object (does not touch Drive)
+function flushNbPageToMemory(){
+  if(!editingNbNotebook||!editingNbPage)return;
   const title=document.getElementById('nb-page-name').value.trim()||'Untitled';
   const content=document.getElementById('nb-page-editor').innerHTML;
-  const pid=editingNbPage||uuid();
   const now=todayStr();
-  const existing=storage.notebooks[editingNbNotebook]?.pages[pid];
-  storage.notebooks[editingNbNotebook].pages[pid]={
+  const nb=storage.notebooks[editingNbNotebook];
+  if(!nb)return;
+  const existing=nb.pages[editingNbPage];
+  nb.pages[editingNbPage]={
     title,content,
     attachments:getAttachStage('nbpage'),
     created:existing?.created||now,
     modified:now
   };
+}
+// Called on every keystroke: saves into memory immediately, then debounces the Drive sync
+function markNbDirty(){
+  nbDirty=true;
+  flushNbPageToMemory();
+  const st=document.getElementById('nb-save-status');if(st)st.textContent='Saving…';
+  clearTimeout(nbAutoSaveTimer);
+  nbAutoSaveTimer=setTimeout(saveNbPageToDrive,2500);
+}
+async function saveNbPageToDrive(){
+  if(!nbDirty)return;
+  flushNbPageToMemory();
+  renderNotebooks();
+  await saveToDrive();
+  nbDirty=false;
+  const st=document.getElementById('nb-save-status');if(st)st.textContent='Saved';
+}
+// Explicit Save button — flush + sync immediately, then close
+async function submitNbPage(){
+  clearTimeout(nbAutoSaveTimer);
+  flushNbPageToMemory();
   closeModal('modal-nb-page');
-  renderNotebooks();saveToDrive();
+  renderNotebooks();
+  await saveToDrive();
+  nbDirty=false;
   toast('📄 Page saved');
 }
-function nbCmd(cmd){document.execCommand(cmd,false,null);document.getElementById('nb-page-editor').focus();}
-function nbFmtBlock(tag){document.execCommand('formatBlock',false,tag);document.getElementById('nb-page-editor').focus();}
+// Back arrow — flush any pending edits (in case within the debounce window) before leaving
+async function closeNbPageEditor(){
+  clearTimeout(nbAutoSaveTimer);
+  if(nbDirty){
+    flushNbPageToMemory();
+    renderNotebooks();
+    await saveToDrive();
+    nbDirty=false;
+  }
+  closeModal('modal-nb-page');
+}
+function nbCmd(cmd){document.execCommand(cmd,false,null);document.getElementById('nb-page-editor').focus();markNbDirty();}
+function nbFmtBlock(tag){document.execCommand('formatBlock',false,tag);document.getElementById('nb-page-editor').focus();markNbDirty();}
 function deleteNotebook(id){if(!confirm('Delete notebook?'))return;delete storage.notebooks[id];_nbUnlockedIds.delete(id);renderNotebooks();saveToDrive();}
 
 // ── PROJECTS (enhanced) ──
@@ -4815,6 +5233,14 @@ function renderProjects(){
   if(_projFilter === 'overdue') ps = ps.filter(p => p.due && p.due < today && p.status !== 'done');
   if(_projFilter === 'done')    ps = ps.filter(p => p.status === 'done');
 
+  const pq=(document.getElementById('proj-search')?.value||'').toLowerCase().trim();
+  if(pq) ps = ps.filter(p =>
+    (p.name||'').toLowerCase().includes(pq) ||
+    (p.desc||'').toLowerCase().includes(pq) ||
+    (p.category||'').toLowerCase().includes(pq) ||
+    (p.tasks||[]).some(t=>(t.text||'').toLowerCase().includes(pq))
+  );
+
   document.getElementById('project-list').innerHTML = ps.length ? ps.map(p => {
     const isOverdue = p.due && p.due < today && p.status !== 'done';
     const isDueToday = p.due && p.due === today;
@@ -4826,7 +5252,7 @@ function renderProjects(){
     const prioLabel = PRIO_LABEL[p.priority||'normal'];
     const prioColor = PRIO_COLOR[p.priority||'normal'];
 
-    return `<div class="card" style="border-left:4px solid ${color}">
+    return `<div class="card" id="proj-${p.id}" style="border-left:4px solid ${color}">
       <!-- Project header -->
       <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">
         <div style="flex:1;min-width:0">
@@ -4857,7 +5283,7 @@ function renderProjects(){
         const tOverdue = t.due && t.due < today && !t.done;
         const subtasks = t.subtasks || [];
         const subDone = subtasks.filter(s=>s.done).length;
-        return `<div class="task-item ${t.done?'done':''}" style="border-left-color:${PRIO_COLOR[t.priority||'normal']}">
+        return `<div class="task-item ${t.done?'done':''}" id="ptask-${t.id}" style="border-left-color:${PRIO_COLOR[t.priority||'normal']}">
           <input type="checkbox" ${t.done?'checked':''} onchange="toggleProjTask('${p.id}','${t.id}')"/>
           <div class="task-body">
             <div class="task-text">${escH(t.text)}</div>
@@ -5723,7 +6149,7 @@ function buildSearchResults(q,typeFilter){
       const text=(e.note||'').replace(/<[^>]+>/g,'')+' '+((e.tags||[]).join(' '));
       if(text&&matches(text)){
         const snippet=extractSnippet(e.note||'',q)+((e.tags&&e.tags.length)?'  🏷 '+e.tags.join(', '):'');
-        results.push({type:'Diary',date:d,snippet,rawText:text,score:scoreResult(text,q),action:()=>jumpToDate(d)});
+        results.push({type:'Diary',date:d,snippet,rawText:text,score:scoreResult(text,q),action:()=>{jumpToDate(d);setTimeout(()=>{const ed=document.getElementById('diary-editor');if(ed)highlightTermsInElement(ed,q.startsWith('#')?q.slice(1):q);},150);}});
       }
     });
   }
@@ -5732,7 +6158,7 @@ function buildSearchResults(q,typeFilter){
       if(!passesDateFilter(t.due||''))return;
       const hay=t.text+' '+((t.tags||[]).join(' '));
       if(matches(hay))
-        results.push({type:'Task',date:t.due||'',snippet:t.text+((t.tags&&t.tags.length)?' ['+t.tags.join(', ')+']':''),rawText:hay,score:scoreResult(hay,q),action:()=>navTo('tasks')});
+        results.push({type:'Task',date:t.due||'',snippet:t.text+((t.tags&&t.tags.length)?' ['+t.tags.join(', ')+']':''),rawText:hay,score:scoreResult(hay,q),action:()=>goToItem('tasks','task-'+t.id,q)});
     });
   }
   if(typeFilter==='all'||typeFilter==='expenses'){
@@ -5740,14 +6166,14 @@ function buildSearchResults(q,typeFilter){
       if(!passesDateFilter(e.date||''))return;
       const hay=[e.category||'',e.note||'',e.account||'',e.mode||'',String(e.amount||'')].join(' ');
       if(matches(hay))
-        results.push({type:'Expense',date:e.date||'',snippet:(e.category||'—')+' · ₹'+Math.abs(parseFloat(e.amount)||0).toFixed(0)+(e.note?' · '+e.note:''),rawText:hay,score:scoreResult(hay,q),action:()=>navTo('expenses')});
+        results.push({type:'Expense',date:e.date||'',snippet:(e.category||'—')+' · ₹'+Math.abs(parseFloat(e.amount)||0).toFixed(0)+(e.note?' · '+e.note:''),rawText:hay,score:scoreResult(hay,q),action:()=>goToItem('expenses','exp-'+e.id,q)});
     });
   }
   if(typeFilter==='all'||typeFilter==='contacts'){
     (storage.contacts||[]).forEach(c=>{
       const hay=[c.name,c.phone||'',c.email||'',c.note||'',c.company||'',c.whatsapp||'',c.website||'',c.address||'',c.relation||'',c.alias||''].join(' ');
       if(matches(hay))
-        results.push({type:'Contact',date:'',snippet:c.name+(c.phone?' · '+c.phone:'')+(c.email?' · '+c.email:''),rawText:hay,score:scoreResult(hay,q),action:()=>navTo('contacts')});
+        results.push({type:'Contact',date:'',snippet:c.name+(c.phone?' · '+c.phone:'')+(c.email?' · '+c.email:''),rawText:hay,score:scoreResult(hay,q),action:()=>goToItem('contacts','contact-'+c.id,q)});
     });
   }
   if(typeFilter==='all'||typeFilter==='notes'){
@@ -5755,29 +6181,29 @@ function buildSearchResults(q,typeFilter){
       if(!passesDateFilter(n.created||''))return;
       const text=n.text.replace(/<[^>]+>/g,'')+' '+((n.tags||[]).join(' '));
       if(matches(text))
-        results.push({type:'Note',date:n.created||'',snippet:extractSnippet(n.text,q)+((n.tags&&n.tags.length)?'  🏷 '+n.tags.join(', '):''),rawText:text,score:scoreResult(text,q),action:()=>navTo('notes')});
+        results.push({type:'Note',date:n.created||'',snippet:extractSnippet(n.text,q)+((n.tags&&n.tags.length)?'  🏷 '+n.tags.join(', '):''),rawText:text,score:scoreResult(text,q),action:()=>goToItem('notes','note-'+n.id,q)});
     });
-    Object.values(storage.notebooks||{}).forEach(nb=>{
-      Object.values(nb.pages||{}).forEach(p=>{
+    Object.entries(storage.notebooks||{}).forEach(([nbId,nb])=>{
+      Object.entries(nb.pages||{}).forEach(([pageId,p])=>{
         const content=(p.content||'').replace(/<[^>]+>/g,'');
         const hay=(p.title||'')+' '+content;
         if(matches(hay))
-          results.push({type:'Notebook',date:'',snippet:(p.title||'Untitled')+': '+extractSnippet(p.content||'',q,80),rawText:hay,score:scoreResult(hay,q),action:()=>navTo('notebook')});
+          results.push({type:'Notebook',date:'',snippet:(p.title||'Untitled')+': '+extractSnippet(p.content||'',q,80),rawText:hay,score:scoreResult(hay,q),action:()=>{navTo('notebook');editNbPage(nbId,pageId);setTimeout(()=>{const ed=document.getElementById('nb-page-editor');if(ed)highlightTermsInElement(ed,q.startsWith('#')?q.slice(1):q);},150);}});
       });
     });
     (storage.lists||[]).forEach(l=>{
       (l.items||[]).forEach(item=>{
         if(matches(item.text))
-          results.push({type:'Checklist',date:'',snippet:l.name+' → '+item.text,rawText:item.text,score:scoreResult(item.text,q),action:()=>navTo('lists')});
+          results.push({type:'Checklist',date:'',snippet:l.name+' → '+item.text,rawText:item.text,score:scoreResult(item.text,q),action:()=>goToItem('lists','cl-item-'+item.id,q)});
       });
     });
     (storage.projects||[]).forEach(p=>{
       const phay=[p.name||'',p.category||'',(p.tags||[]).join(' ')].join(' ');
       if(matches(phay))
-        results.push({type:'Project',date:'',snippet:p.name+(p.category?'  🏷 '+p.category:''),rawText:phay,score:scoreResult(phay,q),action:()=>navTo('projects')});
+        results.push({type:'Project',date:'',snippet:p.name+(p.category?'  🏷 '+p.category:''),rawText:phay,score:scoreResult(phay,q),action:()=>goToItem('projects','proj-'+p.id,q)});
       (p.tasks||[]).forEach(t=>{
         if(matches(t.text))
-          results.push({type:'Project',date:'',snippet:p.name+' → '+t.text,rawText:t.text,score:scoreResult(t.text,q),action:()=>navTo('projects')});
+          results.push({type:'Project',date:'',snippet:p.name+' → '+t.text,rawText:t.text,score:scoreResult(t.text,q),action:()=>goToItem('projects','ptask-'+t.id,q)});
       });
     });
   }
@@ -5903,6 +6329,21 @@ document.addEventListener('focusin', e=>{
 // ── HAPTIC FEEDBACK helper (on devices that support it) ──
 function vibrate(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms||8); }catch(e){} }
 
+// ── GLOBAL TEXT SIZE (applies to every module panel) ──
+const FONT_SCALE_MIN=0.8, FONT_SCALE_MAX=1.6, FONT_SCALE_STEP=0.1;
+function getFontScale(){ const v=parseFloat(localStorage.getItem('sd_font_scale')); return isNaN(v)?1:v; }
+function applyFontScale(v){
+  document.documentElement.style.setProperty('--content-zoom', v);
+  const lbl=document.getElementById('fs-label'); if(lbl)lbl.textContent=Math.round(v*100)+'%';
+  localStorage.setItem('sd_font_scale', v);
+}
+function adjustFontSize(dir){
+  let v=getFontScale()+dir*FONT_SCALE_STEP;
+  v=Math.min(FONT_SCALE_MAX,Math.max(FONT_SCALE_MIN,Math.round(v*100)/100));
+  applyFontScale(v);
+  vibrate(6);
+}
+
 
 // ── OFFLINE LOCAL FILE MODE ──
 let localEncFile=null; // holds the File object for offline mode
@@ -5958,8 +6399,7 @@ async function submitLocalLogin(){
 }
 
 
-// Override downloadEncFile to always use latest blob in offline mode
-const _originalDownloadEncFile=downloadEncFile;
+// Single public entry point: routes to offline-file-save or online (Drive) blob download
 async function downloadEncFile(){
   if(isOfflineMode){
     if(!storage||!currentPassword)return;
@@ -5973,7 +6413,7 @@ async function downloadEncFile(){
     }finally{hideLoading();closeMoreMenu();}
     return;
   }
-  return _originalDownloadEncFile();
+  return downloadEncFileOnline();
 }
 
 
@@ -5994,6 +6434,8 @@ function saveAppId(){
 }
 
 window.onload=()=>{
+  // Restore saved text-size preference for all modules
+  applyFontScale(getFontScale());
   // Register service worker for offline support
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW reg failed',e));
