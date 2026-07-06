@@ -361,6 +361,7 @@ html, body {
 .cal-day.selected { background: rgba(255,255,255,0.3); color: #fff; font-weight: 700; }
 .cal-day.has-entry::after { content:''; display:block; width:4px; height:4px; border-radius:50%; background:rgba(255,255,255,0.6); margin:1px auto 0; }
 .cal-day.today.has-entry::after { background: var(--primary); }
+.cal-day.has-reminder::before { content:''; display:block; width:4px; height:4px; border-radius:50%; background:#ffb300; position:absolute; top:3px; right:5px; }
 .cal-day.other-month { opacity: 0.25; }
 
 /* ══════════════════════════════════════════
@@ -1693,7 +1694,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="form-grid">
       <div class="form-group">
         <label class="form-label">Due Date</label>
-        <input type="date" class="form-input" id="task-due"/>
+        <input type="date" class="form-input" id="task-due" oninput="renderTaskReminderChips()"/>
       </div>
       <div class="form-group">
         <label class="form-label">Priority</label>
@@ -1708,6 +1709,25 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="form-group">
       <label class="form-label">Tags (comma separated)</label>
       <input type="text" class="form-input" id="task-tags" placeholder="work, urgent"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">🔔 Reminders (before due date)</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <button type="button" class="attach-btn" onclick="addTaskReminderPreset(1,'days')">1 day before</button>
+        <button type="button" class="attach-btn" onclick="addTaskReminderPreset(7,'days')">7 days before</button>
+        <button type="button" class="attach-btn" onclick="addTaskReminderPreset(1,'months')">1 month before</button>
+      </div>
+      <div id="task-reminder-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="number" min="1" class="form-input" id="task-reminder-custom-value" placeholder="e.g. 3" style="width:80px;flex:none"/>
+        <select class="form-input" id="task-reminder-custom-unit" style="width:130px;flex:none">
+          <option value="days">Day(s) before</option>
+          <option value="weeks">Week(s) before</option>
+          <option value="months">Month(s) before</option>
+        </select>
+        <button type="button" class="attach-btn" onclick="addTaskReminderCustom()">＋ Add</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Reminders show on the dashboard, notifications (if enabled) and the Calendar view when they fall due. Needs a due date set.</div>
     </div>
     <div class="form-group">
       <label class="form-label">📎 Attachments</label>
@@ -3830,7 +3850,7 @@ function closeMoreMenu(){document.getElementById('more-menu').classList.remove('
 // ── FAB ──
 function fabAction(){
   if(currentPanel==='diary')return;
-  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';initAttachUI('task',[]);openModal('modal-task');return;}
+  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';taskReminderDraft=[];renderTaskReminderChips();initAttachUI('task',[]);openModal('modal-task');return;}
   if(currentPanel==='lists'){createChecklist();return;}
   if(currentPanel==='expenses'){
     editingExpenseId=null;
@@ -3866,7 +3886,8 @@ function renderCal(){
   for(let d=1;d<=days;d++){
     const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const hasEntry=storage&&storage.entries&&storage.entries[ds];
-    const cls=['cal-day',ds===today?'today':'',ds===currentDate?'selected':'',hasEntry?'has-entry':''].filter(Boolean).join(' ');
+    const hasReminder=(storage&&storage.todos||[]).some(t=>!t.done&&t.due&&(t.reminders||[]).some(r=>computeReminderDate(t.due,r.value,r.unit)===ds));
+    const cls=['cal-day',ds===today?'today':'',ds===currentDate?'selected':'',hasEntry?'has-entry':'',hasReminder?'has-reminder':''].filter(Boolean).join(' ');
     html+=`<div class="${cls}" onclick="jumpToDate('${ds}')">${d}</div>`;
   }
   grid.innerHTML=html;
@@ -3968,6 +3989,7 @@ function renderCalPanel(){
     const hasEntry=storage&&storage.entries&&storage.entries[ds]&&storage.entries[ds].note;
     const tasksDue=(storage&&storage.todos||[]).filter(t=>t.due===ds&&!t.done);
     const overdueTask=(storage&&storage.todos||[]).some(t=>t.due===ds&&!t.done&&ds<today);
+    const remindersDue=(storage&&storage.todos||[]).filter(t=>!t.done&&t.due&&(t.reminders||[]).some(r=>computeReminderDate(t.due,r.value,r.unit)===ds));
     const isToday=ds===today,isSel=ds===calPanelSelected;
     const hasExpense=(storage&&storage.expenses||[]).some(e=>e.date===ds);
     const dayOccasions=occasionsOnDate(ds);
@@ -3983,6 +4005,7 @@ function renderCalPanel(){
       <div style="display:flex;gap:2px;justify-content:center;flex-wrap:wrap">
         ${hasEntry?`<span title="Diary entry" style="width:6px;height:6px;border-radius:50%;background:${isToday?'rgba(255,255,255,0.8)':'var(--primary)'}"></span>`:''}
         ${tasksDue.length?`<span title="${tasksDue.length} task(s) due" style="width:6px;height:6px;border-radius:50%;background:${overdueTask?'var(--danger)':(isToday?'rgba(255,255,255,0.8)':'var(--accent)')}"></span>`:''}
+        ${remindersDue.length?`<span title="${remindersDue.length} reminder(s)" style="width:6px;height:6px;border-radius:50%;background:${isToday?'rgba(255,255,255,0.9)':'#ffb300'}"></span>`:''}
         ${hasExpense?`<span title="Expense" style="width:6px;height:6px;border-radius:50%;background:${isToday?'rgba(255,255,255,0.6)':'var(--gold)'}"></span>`:''}
         ${dayOccasions.length?`<span title="${dayOccasions.length} birthday/anniversary" style="width:6px;height:6px;border-radius:50%;background:${isToday?'#fff':'#e91e8c'}"></span>`:''}
       </div>
@@ -4031,6 +4054,25 @@ function renderCalPanelDayDetail(ds){
       ${occHtml}
     </div>`);
   }
+  // Reminders (custom lead-time alerts set on tasks, distinct from the due date itself)
+  const remindersOnDay=(storage&&storage.todos||[]).filter(t=>!t.done&&t.due&&(t.reminders||[]).some(r=>computeReminderDate(t.due,r.value,r.unit)===ds));
+  if(remindersOnDay.length){
+    const remHtml=remindersOnDay.map(t=>{
+      const matches=(t.reminders||[]).filter(r=>computeReminderDate(t.due,r.value,r.unit)===ds);
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:14px">🔔</span>
+          <span style="flex:1;font-size:13px;font-weight:600">${escH(t.text)}</span>
+          <span style="font-size:11px;color:var(--text-muted)">due ${fmtDate(t.due)}</span>
+        </div>
+        <div style="font-size:11px;color:#c77700;margin-left:24px">${matches.map(r=>reminderUnitLabel(r.value,r.unit)).join(', ')}</div>
+      </div>`;
+    }).join('');
+    parts.push(`<div class="card">
+      <div style="font-size:11px;font-weight:700;color:#c77700;margin-bottom:6px">🔔 REMINDERS (${remindersOnDay.length})</div>
+      ${remHtml}
+    </div>`);
+  }
   // Tasks due
   const tasksDue=(storage&&storage.todos||[]).filter(t=>t.due===ds);
   if(tasksDue.length){
@@ -4071,6 +4113,7 @@ function renderCalPanelDayDetail(ds){
     <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--primary);display:inline-block"></span>Diary</span>
     <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block"></span>Task due</span>
     <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--danger);display:inline-block"></span>Overdue</span>
+    <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:#ffb300;display:inline-block"></span>Reminder</span>
     <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--gold);display:inline-block"></span>Expense</span>
     <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:#e91e8c;display:inline-block"></span>Birthday/Anniversary</span>
   </div>`);
@@ -4103,6 +4146,56 @@ function fmt(cmd){document.execCommand(cmd,false,null);}
 function fmtBlock(tag){document.execCommand('formatBlock',false,tag);}
 function insertHR(){document.execCommand('insertHTML',false,'<hr/>');}
 
+// ── TASK REMINDERS (dynamic, multiple per task: N days/weeks/months before due) ──
+let taskReminderDraft=[]; // working list while the Add/Edit Task modal is open: {id,value,unit}
+
+// Computes the actual calendar date (YYYY-MM-DD) a reminder should fire on, given a task's due date.
+function computeReminderDate(dueStr,value,unit){
+  if(!dueStr)return null;
+  const v=Number(value)||0;
+  const d=new Date(dueStr+'T00:00:00');
+  if(unit==='weeks')d.setDate(d.getDate()-v*7);
+  else if(unit==='months')d.setMonth(d.getMonth()-v);
+  else d.setDate(d.getDate()-v); // days (default)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function reminderUnitLabel(value,unit){
+  const names={days:'day',weeks:'week',months:'month'};
+  const n=names[unit]||unit;
+  return `${value} ${n}${value===1?'':'s'} before`;
+}
+function addTaskReminderPreset(value,unit){addTaskReminderEntry(value,unit);}
+function addTaskReminderCustom(){
+  const valEl=document.getElementById('task-reminder-custom-value');
+  const unitEl=document.getElementById('task-reminder-custom-unit');
+  const value=parseInt(valEl.value,10);
+  if(!value||value<1){toast('Enter a valid number');return;}
+  addTaskReminderEntry(value,unitEl.value);
+  valEl.value='';
+}
+function addTaskReminderEntry(value,unit){
+  if(taskReminderDraft.some(r=>r.value===value&&r.unit===unit)){toast('That reminder is already added');return;}
+  if(taskReminderDraft.length>=10){toast('Max 10 reminders per task');return;}
+  taskReminderDraft.push({id:uuid(),value,unit});
+  renderTaskReminderChips();
+}
+function removeTaskReminder(id){
+  taskReminderDraft=taskReminderDraft.filter(r=>r.id!==id);
+  renderTaskReminderChips();
+}
+function renderTaskReminderChips(){
+  const wrap=document.getElementById('task-reminder-chips');
+  if(!wrap)return;
+  const due=document.getElementById('task-due')?document.getElementById('task-due').value:'';
+  wrap.innerHTML=taskReminderDraft.length?taskReminderDraft.map(r=>{
+    const rd=due?computeReminderDate(due,r.value,r.unit):null;
+    return `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:5px 10px;font-size:12px;font-weight:600">
+      🔔 ${reminderUnitLabel(r.value,r.unit)}${rd?` · ${fmtDate(rd)}`:''}
+      <span onclick="removeTaskReminder('${r.id}')" style="cursor:pointer;color:var(--text-muted);font-weight:700">×</span>
+    </span>`;
+  }).join(''):`<span style="font-size:12px;color:var(--text-muted)">No reminders set</span>`;
+}
+
 // ── TASKS ──
 function renderTasks(){
   const tasks=(storage.todos||[]);
@@ -4122,6 +4215,7 @@ function renderTasks(){
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:15px;${t.done?'text-decoration:line-through':''}">${pMap[t.priority]||''} ${escH(t.text)}</div>
         ${t.due?`<div style="font-size:11px;color:${t.due<today&&!t.done?'var(--danger)':'var(--text-muted)'};font-family:monospace">📅 ${fmtDate(t.due)}</div>`:''}
+        ${t.reminders&&t.reminders.length?`<div style="font-size:11px;color:#c77700;margin-top:2px">🔔 ${t.reminders.map(r=>reminderUnitLabel(r.value,r.unit)).join(', ')}</div>`:''}
         ${t.tags&&t.tags.length?`<div style="font-size:11px;color:var(--primary);margin-top:2px">${t.tags.map(g=>`#${g}`).join(' ')}</div>`:''}
         ${t.attachments&&t.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="viewSavedAttachments(storage.todos.find(x=>x.id==='${t.id}').attachments)">📎 ${t.attachments.length} attached</div>`:''}
       </div>
@@ -4134,16 +4228,17 @@ function renderTasks(){
 }
 function setTaskFilter(f,el){taskFilter=f;document.querySelectorAll('#panel-tasks .pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderTasks();}
 function toggleTask(id){const t=storage.todos.find(x=>x.id===id);if(t){t.done=!t.done;vibrate(t.done?[10,30,10]:8);renderTasks();if(currentPanel==='diary')renderDueTasksWidget();saveToDrive();}}
-function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');initAttachUI('task',t.attachments);openModal('modal-task');}
+function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');taskReminderDraft=(t.reminders||[]).map(r=>({id:r.id||uuid(),value:r.value,unit:r.unit}));renderTaskReminderChips();initAttachUI('task',t.attachments);openModal('modal-task');}
 function deleteTask(id){if(!confirm('Delete task?'))return;storage.todos=storage.todos.filter(x=>x.id!==id);renderTasks();saveToDrive();}
 function submitTask(){
   const text=document.getElementById('task-desc').value.trim();if(!text)return toast('Enter task description');
   const due=document.getElementById('task-due').value,priority=document.getElementById('task-priority').value;
   const tags=document.getElementById('task-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
   const attachments=getAttachStage('task');
-  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;t.attachments=attachments;}}
-  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr(),attachments});}
-  closeModal('modal-task');renderTasks();saveToDrive();
+  const reminders=taskReminderDraft.map(r=>({id:r.id,value:r.value,unit:r.unit}));
+  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;t.attachments=attachments;t.reminders=reminders;}}
+  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr(),attachments,reminders});}
+  closeModal('modal-task');renderTasks();renderCalHighlights();saveToDrive();
 }
 
 // ── CHECKLISTS ──
@@ -5991,6 +6086,18 @@ function buildReminders(){
       items.push({type:'task',label:'✅ Task due today',text:t.text,nav:'tasks'});
     } else if(t.due&&t.due<today){
       items.push({type:'task',label:'⚠ Overdue task',text:t.text,nav:'tasks'});
+    }
+    // Custom reminders set on the task (N days/weeks/months before due date).
+    // Shown from the reminder's date up until the task's due date, so a reminder
+    // isn't missed just because the app wasn't opened on the exact day.
+    if(t.due&&(t.reminders||[]).length){
+      const dueReminders=t.reminders.filter(r=>{
+        const rd=computeReminderDate(t.due,r.value,r.unit);
+        return rd&&rd<=today&&t.due>=today;
+      });
+      if(dueReminders.length){
+        items.push({type:'task-reminder',label:'🔔 Reminder',text:t.text+' (due '+fmtDate(t.due)+')',nav:'tasks'});
+      }
     }
   });
 
