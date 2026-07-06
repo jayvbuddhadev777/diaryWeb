@@ -1254,7 +1254,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
               <input type="text" class="form-input" id="exp-cat-filter" placeholder="All" style="padding:8px 10px;font-size:13px;width:100%" oninput="renderExpenses()"/>
             </div>
           </div>
-          <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+          <input type="file" id="expense-json-input" accept="application/json,.json" style="display:none" onchange="handleExpenseImportJSON(this)"/>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('expense-json-input').click()">⬆ Import JSON</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportExpensesJSON()">⬇ Export JSON</button>
             <button class="btn btn-secondary btn-sm" onclick="exportExpenseCSV()">⬇ Export CSV</button>
           </div>
           <div id="exp-list" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -4248,17 +4251,17 @@ function renderExpenses(){
   const spend=exps.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   document.getElementById('exp-summary').innerHTML=`<div class="stat-card"><div class="stat-num" style="color:${total>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(total).toFixed(0)}</div><div class="stat-label">Net</div></div><div class="stat-card"><div class="stat-num" style="color:var(--accent)">₹${income.toFixed(0)}</div><div class="stat-label">Income</div></div><div class="stat-card"><div class="stat-num" style="color:var(--danger)">₹${Math.abs(spend).toFixed(0)}</div><div class="stat-label">Spent</div></div><div class="stat-card"><div class="stat-num">${exps.length}</div><div class="stat-label">Entries</div></div>`;
   document.getElementById('exp-list').innerHTML=exps.length?exps.map(e=>`
-    <div class="card" id="exp-${e.id}" style="display:flex;align-items:center;gap:12px">
+    <div class="card" id="exp-${e.id}" ondblclick="editExpense('${e.id}')" style="display:flex;align-items:center;gap:12px;cursor:pointer">
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:14px">${escH(e.category||'—')}</div>
         <div style="font-size:11px;color:var(--text-muted)">${fmtDate(e.date)} · ${escH(e.mode||'')}${e.account?' · '+escH(e.account):''}</div>
         ${e.note?`<div style="font-size:12px;color:var(--text-mid);margin-top:2px">${escH(e.note)}</div>`:''}
-        ${e.attachments&&e.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="viewSavedAttachments(storage.expenses.find(x=>x.id==='${e.id}').attachments)">📎 ${e.attachments.length} attached</div>`:''}
+        ${e.attachments&&e.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="event.stopPropagation();viewSavedAttachments(storage.expenses.find(x=>x.id==='${e.id}').attachments)">📎 ${e.attachments.length} attached</div>`:''}
       </div>
       <div style="font-weight:700;font-size:16px;color:${parseFloat(e.amount)>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(parseFloat(e.amount)).toFixed(0)}</div>
       <div style="display:flex;gap:4px">
-        <button class="icon-btn edit" onclick="editExpense('${e.id}')">✏️</button>
-        <button class="icon-btn" onclick="deleteExpense('${e.id}')">🗑</button>
+        <button class="icon-btn edit" onclick="event.stopPropagation();editExpense('${e.id}')">✏️</button>
+        <button class="icon-btn" onclick="event.stopPropagation();deleteExpense('${e.id}')">🗑</button>
       </div>
     </div>`).join(''):`<div class="empty"><div class="empty-icon">💰</div><p>No expenses</p></div>`;
   // update datalists from managed lists
@@ -4277,6 +4280,108 @@ function exportExpenseCSV(){
   const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   const a=document.createElement('a');a.href=url;a.download=(currentDiaryName||'diary')+'_expenses.csv';a.click();URL.revokeObjectURL(url);toast('⬇ CSV exported');
+}
+
+// ── EXPENSE JSON IMPORT / EXPORT ──
+// Export format matches the "secure_diary_expenses" schema so files can round-trip
+// between diaries (and be re-imported here) without any manual field mapping.
+function exportExpensesJSON(){
+  const exps=[...(storage.expenses||[])].sort((a,b)=>a.date.localeCompare(b.date));
+  if(!exps.length)return toast('No expenses to export');
+  const dates=exps.map(e=>e.date).filter(Boolean).sort();
+  const payload={
+    export_type:'secure_diary_expenses',
+    version:1,
+    diary_name:currentDiaryName||'',
+    date_from:dates[0]||'',
+    date_to:dates[dates.length-1]||'',
+    exported_at:new Date().toISOString().slice(0,19),
+    count:exps.length,
+    expenses:exps.map(e=>({
+      id:e.id,
+      date:e.date,
+      category:e.category||'',
+      // Internal storage: negative = expense (debit), positive = income (credit).
+      // Exported file convention (matches most expense-tracker exports): positive = expense, negative = income/refund.
+      amount:-(parseFloat(e.amount)||0),
+      remark:e.note||'',
+      notes:'',
+      mode:e.mode||'',
+      account:e.account||''
+    }))
+  };
+  const json=JSON.stringify(payload,null,2);
+  const url=URL.createObjectURL(new Blob([json],{type:'application/json'}));
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=(currentDiaryName||'diary')+'_expenses_'+(payload.date_from||'all')+'_to_'+(payload.date_to||'now')+'.json';
+  a.click();URL.revokeObjectURL(url);
+  toast('⬇ JSON exported ('+exps.length+' entries)');
+}
+
+function handleExpenseImportJSON(inputEl){
+  const file=inputEl.files&&inputEl.files[0]; inputEl.value='';
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async ()=>{
+    showLoading('Reading file…');
+    try{
+      const data=JSON.parse(reader.result);
+      const list=Array.isArray(data)?data:(Array.isArray(data.expenses)?data.expenses:null);
+      if(!list)throw new Error('No "expenses" array found in that file');
+      if(!list.length){toast('⚠️ No entries found in that file');return;}
+
+      storage.expenses=storage.expenses||[];
+      storage.expLists=storage.expLists||{cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]};
+      const sl=storage.expLists;
+      sl.cats=sl.cats||[]; sl.modes=sl.modes||[]; sl.accs=sl.accs||[];
+
+      // Dedupe against existing entries: same date + category + amount + account + note = already imported.
+      const existingKey=e=>[e.date,e.category,parseFloat(e.amount),e.account,e.note].join('§');
+      const seen=new Set((storage.expenses||[]).map(existingKey));
+
+      let added=0, skipped=0, catsCreated=0, accsCreated=0, modesCreated=0;
+      list.forEach(row=>{
+        const date=String(row.date||'').slice(0,10);
+        const rawAmt=parseFloat(row.amount);
+        if(!date||isNaN(rawAmt)){skipped++;return;}
+        // Imported file convention: positive amount = expense (stored negative/red),
+        // negative amount = income or refund (stored positive/green) — matches this app's own convention.
+        const amt=rawAmt<0?Math.abs(rawAmt):-Math.abs(rawAmt);
+        const category=String(row.category||'').trim();
+        const account=String(row.account||'').trim();
+        const mode=String(row.mode||'').trim();
+        const note=String(row.remark!=null&&row.remark!==''?row.remark:(row.note||'')).trim();
+
+        // Auto-create category / account / mode in the managed lists if not already present.
+        if(category&&!sl.cats.includes(category)){sl.cats.push(category);catsCreated++;}
+        if(account&&!sl.accs.includes(account)){sl.accs.push(account);accsCreated++;}
+        if(mode&&!sl.modes.includes(mode)){sl.modes.push(mode);modesCreated++;}
+
+        const entry={id:uuid(),date,category,amount:amt,mode,account,note,attachments:[]};
+        const key=existingKey(entry);
+        if(seen.has(key)){skipped++;return;}
+        seen.add(key);
+        storage.expenses.push(entry);
+        added++;
+      });
+
+      renderExpenses();
+      saveToDrive();
+      let msg=`✅ Imported ${added} entr${added===1?'y':'ies'}`;
+      if(skipped)msg+=`, skipped ${skipped}`;
+      const created=[catsCreated&&catsCreated+' categor'+(catsCreated===1?'y':'ies'),accsCreated&&accsCreated+' account'+(accsCreated===1?'':'s'),modesCreated&&modesCreated+' mode'+(modesCreated===1?'':'s')].filter(Boolean);
+      if(created.length)msg+=` · created ${created.join(', ')}`;
+      toast(msg,4000);
+    }catch(e){
+      console.error(e);
+      toast('❌ Import failed: '+e.message);
+    }finally{
+      hideLoading();
+    }
+  };
+  reader.onerror=()=>toast('❌ Could not read file');
+  reader.readAsText(file);
 }
 
 // ── EXPENSE REPORT ──
@@ -4300,11 +4405,16 @@ function renderReport(){
     months.forEach((m,i)=>{const o=document.createElement('option');o.value=i+1;o.textContent=m;monthSel.appendChild(o);});
     monthSel.value=now.getMonth()+1;
   }
-  if(!yearSel.options.length){
+  {
     const years=[...new Set(exps.map(e=>e.date?e.date.slice(0,4):null).filter(Boolean))];
     if(!years.includes(String(now.getFullYear())))years.push(String(now.getFullYear()));
-    years.sort((a,b)=>b-a).forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;yearSel.appendChild(o);});
-    yearSel.value=now.getFullYear();
+    years.sort((a,b)=>b-a);
+    const existingYears=[...yearSel.options].map(o=>o.value);
+    if(existingYears.join(',')!==years.join(',')){
+      const cur=yearSel.value||String(now.getFullYear());
+      yearSel.innerHTML=years.map(y=>`<option value="${y}">${y}</option>`).join('');
+      yearSel.value=years.includes(cur)?cur:years[0];
+    }
   }
   // populate account/category dropdowns from managed lists + observed values
   const sl=storage.expLists||{};
