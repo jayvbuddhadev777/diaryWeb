@@ -2315,6 +2315,22 @@ Web Version Diary !
     </div>
 
     <div class="form-group">
+      <label class="form-label">📧 Email Reminders (Cloud — works even when app is closed)</label>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px" id="settings-email-remind-box">
+        <!-- filled by refreshEmailReminderBox() -->
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">Sends task/due-date titles &amp; dates (no diary content) to a small file in your OneDrive App Folder. A free Microsoft Power Automate flow reads it on a schedule and emails you via Outlook — so it works even if this app or your phone is closed. <span style="text-decoration:underline;cursor:pointer" onclick="openModal('modal-email-remind-help')">See setup steps</span>.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">🗓️ Google Calendar Reminders (easiest — Google emails you automatically)</label>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px" id="settings-gcal-box">
+        <!-- filled by refreshGCalBox() -->
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">Puts your due tasks on a Google Calendar with an email reminder attached — Google sends the email itself, on time, even if this app is closed. No flow to build. Only task titles &amp; due dates are sent to Google, never diary content. <span style="text-decoration:underline;cursor:pointer" onclick="openModal('modal-gcal-help')">See setup steps</span>.</div>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">🔓 Quick PIN Unlock</label>
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px" id="settings-pin-box">
         <!-- filled by refreshSettingsModal() -->
@@ -2350,6 +2366,58 @@ Web Version Diary !
     </div>
 
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-settings')">Close</button></div>
+  </div>
+</div>
+
+<!-- Email Reminders (Cloud) — setup help -->
+<div class="modal-overlay" id="modal-email-remind-help">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>📧 Cloud Email Reminders — Setup</h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.7">
+      This app can't send email by itself while it's closed — no app can, without a server. Instead, it drops a small, unencrypted file (<b>only task titles &amp; due dates — no diary content</b>) called <code style="font-family:monospace">reminders-feed.json</code> into your OneDrive App Folder. A free Microsoft <b>Power Automate</b> flow, running on your Microsoft account, checks that file on a schedule and emails you via Outlook. One-time setup, then it just runs.
+    </p>
+    <ol style="font-size:13px;line-height:2.2;padding-left:18px;margin-bottom:14px">
+      <li>In Settings, turn on <b>Email Reminders (Cloud)</b> and enter the email address you want reminders sent to. Tap <b>Sync now</b> once so the feed file exists.</li>
+      <li>Go to <a href="https://make.powerautomate.com" target="_blank" style="color:#0078d4">make.powerautomate.com</a> and sign in with the <b>same Microsoft account</b> you use in this app.</li>
+      <li>Click <b>+ Create</b> → <b>Scheduled cloud flow</b>. Name it e.g. "Diary reminders", set it to run <b>Daily</b> at a time you like (e.g. 7:00 AM) → <b>Create</b>.</li>
+      <li>Add action <b>OneDrive → Get file content using path</b>. For the path, use <span style="font-family:monospace;font-size:12px">/Apps/&lt;your app's folder name&gt;/reminders-feed.json</span> (open OneDrive.com → the <b>Apps</b> folder → find the folder this app created → confirm the exact name there).</li>
+      <li>Add action <b>Data Operation → Parse JSON</b>. Set Content to the file-content output from step 4. For the schema, click <b>Generate from sample</b> and paste one export of your feed (tap <b>Sync now</b> in Settings, then open the file on OneDrive.com to copy its contents).</li>
+      <li>Add action <b>Filter array</b>. From = the <span style="font-family:monospace">items</span> array from Parse JSON. Condition: <span style="font-family:monospace">due</span> is less than or equal to <span style="font-family:monospace">utcNow('yyyy-MM-dd')</span> — this catches due-today and overdue tasks.</li>
+      <li>Add action <b>Apply to each</b> over the filtered array → inside it, add <b>Office 365 Outlook → Send an email (V2)</b>. To: the <span style="font-family:monospace">recipient</span> field from Parse JSON. Subject: something like "Task due: " + <span style="font-family:monospace">title</span>. Body: include <span style="font-family:monospace">title</span> and <span style="font-family:monospace">due</span>.</li>
+      <li>Save the flow, then click <b>Test → Manually</b> once to confirm you get an email. After that it runs automatically every day, even with the app and your phone closed.</li>
+    </ol>
+    <div style="font-size:11.5px;color:var(--text-muted);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:6px">
+      Tip: Power Automate's free tier (included with a Microsoft account) is enough for one daily flow like this. If your account doesn't show Power Automate, it can be added free at <a href="https://make.powerautomate.com" target="_blank" style="color:#0078d4">make.powerautomate.com</a>.
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal('modal-email-remind-help')">Got it</button></div>
+  </div>
+</div>
+
+<!-- Google Calendar Reminders — setup help -->
+<div class="modal-overlay" id="modal-gcal-help">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>🗓️ Google Calendar Reminders — Setup</h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.7">
+      This is the simplest cloud option: the app creates a Google Calendar event (title + due date only — <b>never diary content</b>) for each task with a due date, and attaches an email reminder to it. <b>Google itself sends that email</b> — there's no automation flow to build, no schedule to configure. You only need a one-time Google API key.
+    </p>
+    <ol style="font-size:13px;line-height:2.2;padding-left:18px;margin-bottom:14px">
+      <li>Go to <a href="https://console.cloud.google.com/" target="_blank" style="color:#0078d4">console.cloud.google.com</a> → create a project (or use an existing one).</li>
+      <li>Go to <b>APIs &amp; Services → Library</b>, search for <b>Google Calendar API</b>, and click <b>Enable</b>.</li>
+      <li>Go to <b>APIs &amp; Services → OAuth consent screen</b>. Choose <b>External</b>, fill in the required fields (app name, your email), and add yourself under <b>Test users</b>. You can leave it in "Testing" mode — no Google review needed for personal use.</li>
+      <li>Go to <b>APIs &amp; Services → Credentials → + Create Credentials → OAuth client ID</b>. Application type: <b>Web application</b>.</li>
+      <li>Under <b>Authorized JavaScript origins</b>, add this app's exact origin: <span id="gcal-origin-display" style="font-family:monospace;font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px"></span>
+        <button onclick="copyGcalOrigin()" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:4px">📋 Copy</button>
+      </li>
+      <li>Click <b>Create</b> → copy the <b>Client ID</b> (looks like <span style="font-family:monospace;font-size:12px">xxxx.apps.googleusercontent.com</span>).</li>
+      <li>Paste it into Settings → Google Calendar Reminders → tap <b>Connect Google</b> → sign in and approve calendar access.</li>
+      <li>Turn the toggle on and tap <b>Sync now</b> once. From then on, every task with a due date gets a calendar event with an email reminder — Google handles delivery automatically, app open or closed.</li>
+    </ol>
+    <div style="font-size:11.5px;color:var(--text-muted);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:6px">
+      Tip: while the consent screen is in "Testing" mode, only the test users you added can connect — that's fine for personal use and never expires for you.
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal('modal-gcal-help')">Got it</button></div>
   </div>
 </div>
 
@@ -2491,6 +2559,7 @@ Web Version Diary !
 
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.10.0/lib/msal-browser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 // ═══════════════════════════════════════
 //  SECURE DIARY — OneDrive Edition
@@ -3164,6 +3233,9 @@ function normalizeStorage(){
   });
   if(!storage.expLists)storage.expLists={cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]};
   storage.entries=storage.entries||{};storage.notebooks=storage.notebooks||{};
+  if(!storage.emailReminderCfg)storage.emailReminderCfg={enabled:false,email:''};
+  if(!storage.gcalCfg)storage.gcalCfg={enabled:false,hour:9};
+  if(!storage.gcalEventMap)storage.gcalEventMap={};
 }
 
 async function uploadToDrive(name,ab,existingId){
@@ -3239,6 +3311,8 @@ async function saveToDrive(){
     dirty=false;
     markSynced();
     if(currentPanel==='dashboard')checkBackupNudge();
+    scheduleReminderFeedSync();
+    scheduleGCalSync();
   }catch(e){
     setSyncBadge('error','Error!');
     toast('❌ OneDrive save failed: '+e.message);
@@ -3508,8 +3582,320 @@ function checkAndFireNotifications(force){
   localStorage.setItem(stampKey,today);
 }
 
+// ── CLOUD EMAIL REMINDERS (via OneDrive feed file + Microsoft Power Automate) ──
+// This app has no server, so it can't send email while closed on its own.
+// Instead, when enabled, it writes a small unencrypted feed (titles + due dates only,
+// never diary content) to the OneDrive App Folder. A Power Automate flow the user sets
+// up once (see modal-email-remind-help) reads that file on a schedule and emails them.
+function getEmailReminderCfg(){
+  if(!storage)return{enabled:false,email:''};
+  if(!storage.emailReminderCfg)storage.emailReminderCfg={enabled:false,email:''};
+  return storage.emailReminderCfg;
+}
+function refreshEmailReminderBox(){
+  const box=document.getElementById('settings-email-remind-box');
+  if(!box||!storage)return;
+  const cfg=getEmailReminderCfg();
+  box.innerHTML=
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
+      '<span style="font-size:13px;font-weight:600">'+(cfg.enabled?'✓ Enabled':'Disabled')+'</span>'+
+      '<button class="btn btn-secondary btn-sm" onclick="settingsToggleEmailReminders()">'+(cfg.enabled?'Disable':'Enable')+'</button>'+
+    '</div>'+
+    '<input type="email" class="form-input" id="email-remind-addr" placeholder="you@example.com" value="'+escH(cfg.email||'')+'" style="margin-bottom:8px"/>'+
+    '<div style="display:flex;gap:8px">'+
+      '<button class="btn btn-secondary btn-sm" style="flex:1" onclick="saveEmailReminderSettings()">💾 Save address</button>'+
+      '<button class="btn btn-accent btn-sm" style="flex:1" onclick="testSyncReminderFeed()">🔄 Sync now</button>'+
+    '</div>'+
+    '<div id="email-remind-status" style="font-size:11px;color:var(--text-muted);margin-top:6px">'+
+      (isOfflineMode?'⚠️ Not available in offline mode — needs OneDrive.':'')+
+    '</div>';
+}
+function settingsToggleEmailReminders(){
+  const cfg=getEmailReminderCfg();
+  cfg.enabled=!cfg.enabled;
+  if(cfg.enabled&&!cfg.email){toast('ℹ️ Add your email address below, then Save');}
+  refreshEmailReminderBox();
+  saveToDrive().then(()=>{ if(cfg.enabled)syncReminderFeedToDrive(); });
+}
+function saveEmailReminderSettings(){
+  const cfg=getEmailReminderCfg();
+  const inp=document.getElementById('email-remind-addr');
+  cfg.email=inp?inp.value.trim():cfg.email;
+  toast('✅ Saved');
+  saveToDrive().then(()=>{ if(cfg.enabled)syncReminderFeedToDrive(); });
+}
+// Builds the minimal, unencrypted payload written to OneDrive for the cloud flow to read.
+function buildReminderFeed(){
+  const cfg=getEmailReminderCfg();
+  const items=[];
+  (storage.todos||[]).forEach(t=>{
+    if(t.done||!t.due)return;
+    items.push({
+      id:t.id,title:t.text,due:t.due,type:'task',priority:t.priority||'normal',
+      remindOn:(t.reminders||[]).map(r=>computeReminderDate(t.due,r.value,r.unit)).filter(Boolean)
+    });
+  });
+  (storage.projects||[]).forEach(p=>{
+    if(p.due&&p.status!=='done'){
+      items.push({id:p.id,title:'Project: '+p.name,due:p.due,type:'project',priority:'normal',remindOn:[]});
+    }
+    (p.tasks||[]).forEach(t=>{
+      if(!t.done&&t.due)items.push({id:t.id,title:p.name+' → '+t.text,due:t.due,type:'project-task',priority:'normal',remindOn:[]});
+    });
+  });
+  return{generatedAt:new Date().toISOString(),today:todayStr(),recipient:cfg.email||'',items};
+}
+let _reminderFeedSyncTimer=null;
+// Debounced — called after every OneDrive save so the feed stays fresh without spamming Graph on every keystroke.
+function scheduleReminderFeedSync(){
+  const cfg=getEmailReminderCfg();
+  if(!cfg||!cfg.enabled||!cfg.email||isOfflineMode||!accessToken)return;
+  clearTimeout(_reminderFeedSyncTimer);
+  _reminderFeedSyncTimer=setTimeout(syncReminderFeedToDrive,3000);
+}
+async function syncReminderFeedToDrive(){
+  const cfg=getEmailReminderCfg();
+  const statusEl=document.getElementById('email-remind-status');
+  if(!cfg||!cfg.enabled||!cfg.email){return;}
+  if(isOfflineMode||!accessToken){if(statusEl)statusEl.textContent='⚠️ Needs OneDrive sign-in (not available offline).';return;}
+  try{
+    const feed=buildReminderFeed();
+    const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/special/approot:/reminders-feed.json:/content',{
+      method:'PUT',
+      headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
+      body:JSON.stringify(feed)
+    });
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    if(statusEl)statusEl.textContent='✅ Synced '+new Date().toLocaleTimeString()+' — '+feed.items.length+' item(s)';
+  }catch(e){
+    if(statusEl)statusEl.textContent='❌ Sync failed: '+e.message;
+    console.error('reminder feed sync failed',e);
+  }
+}
+// Manual "Sync now" button — saves the address/toggle first, then force-syncs immediately (no debounce).
+function testSyncReminderFeed(){
+  const cfg=getEmailReminderCfg();
+  const inp=document.getElementById('email-remind-addr');
+  if(inp)cfg.email=inp.value.trim();
+  if(!cfg.email){toast('❌ Enter your email address first');return;}
+  if(isOfflineMode){toast('❌ Needs OneDrive mode (not available offline)');return;}
+  cfg.enabled=true;
+  refreshEmailReminderBox();
+  const statusEl=document.getElementById('email-remind-status');
+  if(statusEl)statusEl.textContent='Syncing…';
+  saveToDrive().then(()=>syncReminderFeedToDrive()).then(()=>toast('✅ Feed synced — set up Power Automate to receive emails'));
+}
+
+// ── GOOGLE CALENDAR REMINDERS (easiest option — Google sends the email itself) ──
+// No automation flow to build: we create a calendar event (title + due date only, never
+// diary content) with an email reminder attached, and Google's own Calendar delivers it.
+let GOOGLE_CLIENT_ID=localStorage.getItem('sd_google_client_id')||'';
+let googleTokenClient=null,gcalAccessToken=null,gcalTokenExpiresAt=0;
+
+function getGCalCfg(){
+  if(!storage)return{enabled:false,hour:9};
+  if(!storage.gcalCfg)storage.gcalCfg={enabled:false,hour:9};
+  return storage.gcalCfg;
+}
+function gcalConnected(){return !!gcalAccessToken && Date.now()<gcalTokenExpiresAt;}
+
+function initGoogleClient(){
+  if(!GOOGLE_CLIENT_ID||typeof google==='undefined'||!google.accounts||!google.accounts.oauth2)return false;
+  if(googleTokenClient)return true;
+  googleTokenClient=google.accounts.oauth2.initTokenClient({
+    client_id:GOOGLE_CLIENT_ID,
+    scope:'https://www.googleapis.com/auth/calendar.events',
+    callback:(resp)=>{
+      if(resp&&resp.access_token){
+        gcalAccessToken=resp.access_token;
+        gcalTokenExpiresAt=Date.now()+((resp.expires_in||3600)*1000)-60000;
+        localStorage.setItem('sd_google_connected','1');
+        refreshGCalBox();
+        toast('✅ Google Calendar connected');
+        if(getGCalCfg().enabled)syncTasksToGoogleCalendar();
+      } else if(resp&&resp.error){
+        refreshGCalBox();
+        toast('❌ Google sign-in failed: '+resp.error);
+      }
+    }
+  });
+  return true;
+}
+// Tries a silent (no-popup) token refresh on load, if the user connected before.
+function tryAutoConnectGoogle(attempts){
+  attempts=attempts||0;
+  if(typeof google==='undefined'||!google.accounts||!google.accounts.oauth2){
+    if(attempts<10)setTimeout(()=>tryAutoConnectGoogle(attempts+1),300);
+    return;
+  }
+  if(!GOOGLE_CLIENT_ID)return;
+  initGoogleClient();
+  if(googleTokenClient&&localStorage.getItem('sd_google_connected')==='1'){
+    try{googleTokenClient.requestAccessToken({prompt:''});}catch(e){/* ignore — user can tap Connect manually */}
+  }
+}
+function connectGoogleCalendar(){
+  const idInp=document.getElementById('gcal-client-id');
+  const id=idInp?idInp.value.trim():'';
+  if(id){GOOGLE_CLIENT_ID=id;localStorage.setItem('sd_google_client_id',id);}
+  if(!GOOGLE_CLIENT_ID){toast('❌ Paste your Google OAuth Client ID first');return;}
+  if(!initGoogleClient()){toast('❌ Google sign-in library still loading — try again in a second');return;}
+  googleTokenClient.requestAccessToken({prompt:gcalConnected()?'':'consent'});
+}
+function disconnectGoogleCalendar(){
+  gcalAccessToken=null;gcalTokenExpiresAt=0;
+  localStorage.removeItem('sd_google_connected');
+  refreshGCalBox();
+  toast('Disconnected — existing calendar events are left as they are');
+}
+function settingsToggleGCal(){
+  const cfg=getGCalCfg();
+  cfg.enabled=!cfg.enabled;
+  refreshGCalBox();
+  saveToDrive().then(()=>{if(cfg.enabled)syncTasksToGoogleCalendar();});
+}
+function saveGCalHour(){
+  const cfg=getGCalCfg();
+  const sel=document.getElementById('gcal-hour');
+  cfg.hour=sel?parseInt(sel.value,10):9;
+  saveToDrive().then(()=>{if(cfg.enabled)syncTasksToGoogleCalendar();});
+}
+function copyGcalOrigin(){
+  const u=location.origin;
+  navigator.clipboard.writeText(u).then(()=>toast('📋 Copied!')).catch(()=>toast('Copy: '+u));
+}
+
+function refreshGCalBox(){
+  const box=document.getElementById('settings-gcal-box');
+  if(!box||!storage)return;
+  const originEl=document.getElementById('gcal-origin-display');
+  if(originEl)originEl.textContent=location.origin;
+  const cfg=getGCalCfg();
+  const connected=gcalConnected();
+  box.innerHTML=
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
+      '<span style="font-size:13px;font-weight:600">'+(cfg.enabled?'✓ Enabled':'Disabled')+'</span>'+
+      '<button class="btn btn-secondary btn-sm" onclick="settingsToggleGCal()">'+(cfg.enabled?'Disable':'Enable')+'</button>'+
+    '</div>'+
+    '<input type="text" class="form-input" id="gcal-client-id" placeholder="xxxx.apps.googleusercontent.com" value="'+escH(GOOGLE_CLIENT_ID||'')+'" style="margin-bottom:8px;font-family:monospace;font-size:12.5px"/>'+
+    '<div style="display:flex;gap:8px;margin-bottom:8px">'+
+      (connected
+        ?'<button class="btn btn-secondary btn-sm" style="flex:1" onclick="disconnectGoogleCalendar()">Disconnect Google</button>'
+        :'<button class="btn btn-accent btn-sm" style="flex:1" onclick="connectGoogleCalendar()">🔗 Connect Google</button>')+
+      '<button class="btn btn-secondary btn-sm" style="flex:1" onclick="syncTasksToGoogleCalendar()">🔄 Sync now</button>'+
+    '</div>'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'+
+      '<span style="font-size:12.5px;color:var(--text-mid)">Reminder time of day</span>'+
+      '<select class="form-input" id="gcal-hour" style="width:auto" onchange="saveGCalHour()">'+
+        Array.from({length:24},(_,h)=>'<option value="'+h+'"'+(cfg.hour===h?' selected':'')+'>'+(h%12===0?12:h%12)+(h<12?' AM':' PM')+'</option>').join('')+
+      '</select>'+
+    '</div>'+
+    '<div id="gcal-status" style="font-size:11px;color:var(--text-muted);margin-top:8px">'+
+      (isOfflineMode?'⚠️ Not available in offline mode.':(connected?'✓ Connected to Google Calendar':'Not connected yet'))+
+    '</div>';
+}
+
+function gcalKeyFor(type,id){return type+':'+id;}
+// Converts "N days/weeks/months before due" into minutes-before-event-start, for Google's reminder overrides.
+function gcalMinutesBefore(dueStr,remindStr){
+  const d1=new Date(dueStr+'T00:00:00'),d2=new Date(remindStr+'T00:00:00');
+  return Math.round((d1-d2)/60000);
+}
+function pad2(n){return String(n).padStart(2,'0');}
+function gcalEventPayload(title,dueStr,remindOnDates){
+  const cfg=getGCalCfg();
+  const hour=(cfg.hour!=null)?cfg.hour:9;
+  const startLocal=dueStr+'T'+pad2(hour)+':00:00';
+  const endLocal=dueStr+'T'+pad2(hour)+':15:00';
+  const tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+  let overrides=(remindOnDates||[]).map(rd=>({method:'email',minutes:gcalMinutesBefore(dueStr,rd)})).filter(o=>o.minutes>=0);
+  if(!overrides.length)overrides=[{method:'email',minutes:0}];
+  overrides=overrides.slice(0,5); // Google Calendar allows a max of 5 overrides per event
+  return{
+    summary:title,
+    start:{dateTime:startLocal,timeZone:tz},
+    end:{dateTime:endLocal,timeZone:tz},
+    reminders:{useDefault:false,overrides}
+  };
+}
+async function gcalReq(url,method,body){
+  const r=await fetch(url,{method:method||'GET',headers:{Authorization:'Bearer '+gcalAccessToken,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  if(!r.ok){const t=await r.text().catch(()=>'');throw new Error('HTTP '+r.status+' '+t.slice(0,160));}
+  if(r.status===204)return{};
+  return r.json();
+}
+async function gcalUpsertEvent(key,title,dueStr,remindOnDates){
+  const payload=gcalEventPayload(title,dueStr,remindOnDates);
+  const existingId=storage.gcalEventMap[key];
+  if(existingId){
+    try{
+      const ev=await gcalReq('https://www.googleapis.com/calendar/v3/calendars/primary/events/'+existingId,'PATCH',payload);
+      storage.gcalEventMap[key]=ev.id;
+      return;
+    }catch(e){ /* event may no longer exist on Google's side — create a fresh one below */ }
+  }
+  const ev=await gcalReq('https://www.googleapis.com/calendar/v3/calendars/primary/events','POST',payload);
+  storage.gcalEventMap[key]=ev.id;
+}
+async function gcalDeleteEvent(key){
+  const existingId=storage.gcalEventMap[key];
+  if(!existingId)return;
+  try{await gcalReq('https://www.googleapis.com/calendar/v3/calendars/primary/events/'+existingId,'DELETE');}catch(e){/* already gone — fine */}
+  delete storage.gcalEventMap[key];
+}
+let _gcalSyncTimer=null,_gcalSyncInProgress=false;
+function scheduleGCalSync(){
+  const cfg=getGCalCfg();
+  if(!cfg||!cfg.enabled||isOfflineMode||!gcalConnected()||_gcalSyncInProgress)return;
+  clearTimeout(_gcalSyncTimer);
+  _gcalSyncTimer=setTimeout(syncTasksToGoogleCalendar,3000);
+}
+// Creates/updates/removes calendar events so they mirror current tasks & project tasks with due dates.
+async function syncTasksToGoogleCalendar(){
+  const cfg=getGCalCfg();
+  const statusEl=document.getElementById('gcal-status');
+  if(!storage||!cfg||!cfg.enabled)return;
+  if(isOfflineMode){if(statusEl)statusEl.textContent='⚠️ Not available in offline mode.';return;}
+  if(!gcalConnected()){if(statusEl)statusEl.textContent='⚠️ Connect Google first.';return;}
+  if(!storage.gcalEventMap)storage.gcalEventMap={};
+  if(statusEl)statusEl.textContent='Syncing…';
+  _gcalSyncInProgress=true;
+  try{
+    const seenKeys=new Set();
+    for(const t of (storage.todos||[])){
+      const key=gcalKeyFor('task',t.id);
+      if(t.done||!t.due){await gcalDeleteEvent(key);continue;}
+      seenKeys.add(key);
+      const remindOn=(t.reminders||[]).map(r=>computeReminderDate(t.due,r.value,r.unit)).filter(Boolean);
+      await gcalUpsertEvent(key,'✅ '+t.text,t.due,remindOn);
+    }
+    for(const p of (storage.projects||[])){
+      const pkey=gcalKeyFor('proj',p.id);
+      if(p.due&&p.status!=='done'){seenKeys.add(pkey);await gcalUpsertEvent(pkey,'🗂 '+p.name,p.due,[]);}
+      else{await gcalDeleteEvent(pkey);}
+      for(const t of (p.tasks||[])){
+        const tkey=gcalKeyFor('ptask',p.id+':'+t.id);
+        if(t.done||!t.due){await gcalDeleteEvent(tkey);continue;}
+        seenKeys.add(tkey);
+        await gcalUpsertEvent(tkey,p.name+' → '+t.text,t.due,[]);
+      }
+    }
+    // Remove calendar events for tasks/projects that no longer exist or lost their due date
+    for(const k of Object.keys(storage.gcalEventMap)){
+      if(!seenKeys.has(k))await gcalDeleteEvent(k);
+    }
+    if(statusEl)statusEl.textContent='✅ Synced '+new Date().toLocaleTimeString()+' — '+seenKeys.size+' event(s)';
+    await saveToDrive(); // persist the updated gcalEventMap so we don't create duplicates next time (guard flag below prevents this from re-triggering itself)
+  }catch(e){
+    if(statusEl)statusEl.textContent='❌ Sync failed: '+e.message;
+    console.error('gcal sync failed',e);
+  }finally{
+    _gcalSyncInProgress=false;
+  }
+}
+
 // ── SETTINGS MODAL ──
-function openSettingsModal(){closeMoreMenu();refreshSettingsModal();openModal('modal-settings');}
+function openSettingsModal(){closeMoreMenu();refreshSettingsModal();refreshEmailReminderBox();refreshGCalBox();openModal('modal-settings');}
 function refreshSettingsModal(){
   const darkBtn=document.getElementById('settings-dark-btn');
   if(darkBtn)darkBtn.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀ Switch to Light':'🌙 Switch to Dark';
@@ -3538,6 +3924,8 @@ function refreshSettingsModal(){
   }
   const weatherBtn=document.getElementById('settings-weather-btn');
   if(weatherBtn)weatherBtn.textContent=weatherEnabled()?'🔕 Disable':'🌦️ Enable';
+  refreshEmailReminderBox();
+  refreshGCalBox();
 }
 function settingsToggleWeather(){
   setWeatherEnabled(!weatherEnabled());
@@ -6797,6 +7185,7 @@ window.onload=()=>{
   } else {
     initMsal();
   }
+  tryAutoConnectGoogle();
 };
 </script>
 </body>
