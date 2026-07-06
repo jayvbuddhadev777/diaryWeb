@@ -579,6 +579,8 @@ html, body {
 }
 .search-flash { animation: searchFlashPulse 1.6s ease-out 2; border-radius: var(--radius, 10px); }
 mark.search-term-hl { background:#fff176; color:#1a1f36; border-radius:2px; padding:0 1px; }
+mark.nb-find-hl { background:#fff176; color:#1a1f36; border-radius:2px; padding:0 1px; }
+mark.nb-find-hl.nb-find-hl-active { background:#ff9800; color:#1a1f36; box-shadow:0 0 0 2px #ff9800; }
 
 /* Icon button */
 .icon-btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font-size: 14px; cursor: pointer; transition: all 0.12s; }
@@ -1964,7 +1966,16 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <button onclick="closeNbPageEditor()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:8px;width:36px;height:36px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center">←</button>
       <input type="text" id="nb-page-name" oninput="markNbDirty()" placeholder="Page title…" style="flex:1;background:rgba(255,255,255,0.15);border:none;border-radius:8px;padding:8px 12px;font-size:16px;font-weight:700;color:#fff;outline:none;font-family:'Fraunces',serif;" />
       <span id="nb-save-status" style="font-size:11px;color:rgba(255,255,255,0.75);white-space:nowrap">Saved</span>
+      <button onclick="toggleNbFind()" title="Find in page" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:8px;width:36px;height:36px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">🔍</button>
       <button onclick="submitNbPage()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer">💾 Save</button>
+    </div>
+    <!-- Find-in-page bar -->
+    <div id="nb-find-bar" style="display:none;align-items:center;gap:8px;padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);flex-shrink:0">
+      <input type="text" id="nb-find-input" placeholder="Find in this page…" oninput="nbFindInput()" onkeydown="nbFindKeydown(event)" style="flex:1;padding:7px 10px;font-size:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)"/>
+      <span id="nb-find-count" style="font-size:12px;color:var(--text-muted);font-weight:600;white-space:nowrap;min-width:34px;text-align:center">0/0</span>
+      <button class="icon-btn" onclick="nbFindNav(-1)" title="Previous match">▲</button>
+      <button class="icon-btn" onclick="nbFindNav(1)" title="Next match">▼</button>
+      <button class="icon-btn" onclick="closeNbFind()" title="Close find">✕</button>
     </div>
     <!-- Rich toolbar -->
     <div class="rich-toolbar" style="border-radius:0;border-left:none;border-right:none;flex-shrink:0;background:var(--surface2)">
@@ -3219,10 +3230,16 @@ function loadFromLocalStorage(){ return null; }
 async function saveEntryAndDrive(){saveEntryInMemory();await saveToDrive();}
 function parseTagsInput(val){return (val||'').split(',').map(t=>t.trim()).filter(Boolean);}
 function saveEntryInMemory(){
-  const h=document.getElementById('diary-editor').innerHTML.trim();
+  const editorEl=document.getElementById('diary-editor');
+  stripHighlightMarks(editorEl); // never persist search-highlight <mark> tags
+  const h=editorEl.innerHTML.trim();
+  // contenteditable often leaves stray empty markup (e.g. "<br>" or "<div><br></div>")
+  // behind after the user deletes all text, so innerHTML alone can look non-empty
+  // even when there's nothing left to show. Check the actual visible text/media instead.
+  const isVisiblyEmpty=!editorEl.textContent.replace(/\u00a0/g,' ').trim()&&!editorEl.querySelector('img,iframe,table');
   const atts=getAttachStage('diary');
   const tags=parseTagsInput(document.getElementById('diary-tags')?.value);
-  if(h||atts.length){
+  if(!isVisiblyEmpty||atts.length){
     const prevWeather=(storage.entries[currentDate]&&storage.entries[currentDate].weather)
       ||(pendingWeather&&pendingWeather.date===currentDate?pendingWeather.data:undefined);
     storage.entries[currentDate]={note:h,attachments:atts,tags};
@@ -3406,7 +3423,14 @@ function performLockExit(){
   saveEntryInMemory();
   saveToDrive().then(doLock).catch(doLock);
 }
-async function downloadEncFileOnline(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await buildSaveBlob();const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();URL.revokeObjectURL(url);toast('⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
+// Builds a filesystem-safe local datetime stamp, e.g. "2026-07-04_18-42-05",
+// so repeated .enc downloads don't overwrite each other and are easy to tell apart.
+function encFilenameStamp(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+async function downloadEncFileOnline(){if(!storage||!currentPassword)return;showLoading('Preparing…');try{const ab=await buildSaveBlob();const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_'+encFilenameStamp()+'.enc';a.click();URL.revokeObjectURL(url);toast('⬇ Downloaded');}finally{hideLoading();closeMoreMenu();}}
 function exportJSON(){if(!storage)return;const url=URL.createObjectURL(new Blob([JSON.stringify(storage,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_backup.json';a.click();URL.revokeObjectURL(url);toast('📤 JSON exported');closeMoreMenu();}
 
 // ── LAUNCH APP ──
@@ -3847,6 +3871,17 @@ function renderCal(){
 function renderCalHighlights(){if(storage){renderCal();if(currentPanel==='calendar')renderCalPanel();}}
 function jumpToDate(ds){currentDate=ds;document.getElementById('header-date-sub').textContent=fmtDate(ds);renderCal();loadDiaryEntry();if(currentPanel!=='diary')navTo('diary');}
 
+// Removes any highlight <mark> elements (from either the global search jump-to
+// or the notebook page find-bar) out of an element's DOM, merging the text back
+// together. Always called right before that element's innerHTML is read for saving,
+// so highlight markup can never get persisted into stored diary/notebook content.
+function stripHighlightMarks(el){
+  if(!el)return;
+  el.querySelectorAll('mark.search-term-hl, mark.nb-find-hl').forEach(m=>{
+    const parent=m.parentNode;
+    if(parent){parent.replaceChild(document.createTextNode(m.textContent),m);parent.normalize();}
+  });
+}
 // Wraps occurrences of the search terms in <mark> inside an element's text content
 // (walks text nodes so it never touches tag attributes like onclick=""). Used after
 // jumping to a search result so the exact matched word(s) are visibly highlighted,
@@ -3854,10 +3889,7 @@ function jumpToDate(ds){currentDate=ds;document.getElementById('header-date-sub'
 function highlightTermsInElement(el,raw){
   if(!el||!raw)return;
   // clear any highlight left over from a previous jump
-  el.querySelectorAll('mark.search-term-hl').forEach(m=>{
-    const parent=m.parentNode;
-    if(parent){parent.replaceChild(document.createTextNode(m.textContent),m);parent.normalize();}
-  });
+  stripHighlightMarks(el);
   const quoteMatch=raw.match(/^"(.+)"$/);
   const terms=(quoteMatch?[quoteMatch[1]]:raw.split(/\s+/)).filter(Boolean);
   if(!terms.length)return;
@@ -4912,26 +4944,37 @@ function renderNotebooks(){
   const nbs=storage.notebooks||{};
   let keys=Object.keys(nbs);
   const nbq=(document.getElementById('nb-search')?.value||'').toLowerCase().trim();
+  // When searching, track which pages matched per-notebook so the list below
+  // actually narrows down instead of just showing every page unchanged.
+  const matchedPageIds={};
   if(nbq){
     keys=keys.filter(k=>{
       const nb=nbs[k];
-      if((nb.name||'').toLowerCase().includes(nbq))return true;
-      if(nb.locked&&!_nbUnlockedIds.has(k))return false; // don't search inside locked notebooks
-      return Object.values(nb.pages||{}).some(p=>(p.title||'').toLowerCase().includes(nbq)||(p.content||'').toLowerCase().replace(/<[^>]+>/g,' ').includes(nbq));
+      const nameMatches=(nb.name||'').toLowerCase().includes(nbq);
+      if(nb.locked&&!_nbUnlockedIds.has(k))return nameMatches; // don't search inside locked notebooks
+      const pageMatchIds=Object.entries(nb.pages||{})
+        .filter(([,p])=>(p.title||'').toLowerCase().includes(nbq)||(p.content||'').toLowerCase().replace(/<[^>]+>/g,' ').includes(nbq))
+        .map(([pk])=>pk);
+      if(pageMatchIds.length)matchedPageIds[k]=pageMatchIds;
+      return nameMatches||pageMatchIds.length>0;
     });
   }
   document.getElementById('notebook-list').innerHTML=keys.length?keys.map(k=>{
     const nb=nbs[k];
     const icon=nb.icon||'📒';
     const isLocked=nb.locked&&!_nbUnlockedIds.has(k);
-    const pages=Object.entries(nb.pages||{});
+    // If searching and this notebook only matched via specific pages (not by name),
+    // only show those matching pages instead of the full page list.
+    let pages=Object.entries(nb.pages||{});
+    const onlyPageMatches=nbq&&matchedPageIds[k]&&!(nb.name||'').toLowerCase().includes(nbq);
+    if(onlyPageMatches)pages=pages.filter(([pk])=>matchedPageIds[k].includes(pk));
     const pageCount=pages.length;
     return`<div class="nb-notebook">
       <div class="nb-nb-header">
         <span style="font-size:22px;margin-right:8px">${icon}</span>
         <div style="flex:1;min-width:0">
           <div class="nb-nb-title">${escH(nb.name)} ${nb.locked?`<span style="font-size:13px">${isLocked?'🔒':'🔓'}</span>`:''}</div>
-          <div style="font-size:11px;color:var(--primary);opacity:0.7">${pageCount} page${pageCount!==1?'s':''}</div>
+          <div style="font-size:11px;color:var(--primary);opacity:0.7">${pageCount} page${pageCount!==1?'s':''}${onlyPageMatches?' matching':''}</div>
         </div>
         <button class="icon-btn edit" onclick="openNbSettings('${k}')" title="Settings" style="margin-right:4px">⚙️</button>
         ${isLocked
@@ -4958,7 +5001,7 @@ function renderNotebooks(){
           :`<div style="padding:14px 16px;font-size:13px;color:var(--text-muted)">No pages yet — tap ＋ Page to add one</div>`
       }
     </div>`;
-  }).join(''):`<div class="empty"><div class="empty-icon">📚</div><p>No notebooks yet</p></div>`;
+  }).join(''):(nbq?`<div class="empty"><div class="empty-icon">🔍</div><p>No notebooks or pages match "${escH(document.getElementById('nb-search').value.trim())}"</p></div>`:`<div class="empty"><div class="empty-icon">📚</div><p>No notebooks yet</p></div>`);
 }
 
 // ── New notebook modal ──
@@ -5088,6 +5131,7 @@ function addNbPage(nbId){
   document.getElementById('nb-page-name').value='';
   document.getElementById('nb-page-editor').innerHTML='';
   document.getElementById('nb-save-status').textContent='Saved';
+  closeNbFind();
   initAttachUI('nbpage',[]);
   openModal('modal-nb-page');
   setTimeout(()=>document.getElementById('nb-page-name').focus(),200);
@@ -5102,6 +5146,7 @@ function editNbPage(nbId,pageId){
   document.getElementById('nb-page-name').value=p?.title||'';
   document.getElementById('nb-page-editor').innerHTML=p?.content||'';
   document.getElementById('nb-save-status').textContent='Saved';
+  closeNbFind();
   initAttachUI('nbpage',p?.attachments);
   openModal('modal-nb-page');
   setTimeout(()=>document.getElementById('nb-page-name').focus(),100);
@@ -5114,6 +5159,7 @@ function deleteNbPage(nbId,pageId){
 // Writes the current editor content into the in-memory storage object (does not touch Drive)
 function flushNbPageToMemory(){
   if(!editingNbNotebook||!editingNbPage)return;
+  clearNbFindHighlights(); // never persist find-highlight <mark> tags into the saved page content
   const title=document.getElementById('nb-page-name').value.trim()||'Untitled';
   const content=document.getElementById('nb-page-editor').innerHTML;
   const now=todayStr();
@@ -5166,6 +5212,89 @@ async function closeNbPageEditor(){
 }
 function nbCmd(cmd){document.execCommand(cmd,false,null);document.getElementById('nb-page-editor').focus();markNbDirty();}
 function nbFmtBlock(tag){document.execCommand('formatBlock',false,tag);document.getElementById('nb-page-editor').focus();markNbDirty();}
+
+// ── Find-in-page (search inside the currently open notebook page, with live highlighting) ──
+let _nbFindMatches=[],_nbFindIndex=-1;
+function toggleNbFind(){
+  const bar=document.getElementById('nb-find-bar');
+  if(!bar)return;
+  if(bar.style.display==='flex'){closeNbFind();return;}
+  bar.style.display='flex';
+  const inp=document.getElementById('nb-find-input');
+  if(inp){inp.value='';setTimeout(()=>inp.focus(),50);}
+  const cnt=document.getElementById('nb-find-count');if(cnt)cnt.textContent='0/0';
+}
+function closeNbFind(){
+  const bar=document.getElementById('nb-find-bar');
+  if(bar)bar.style.display='none';
+  clearNbFindHighlights();
+}
+// Strips find-highlight <mark> tags out of the editor's DOM, merging the text back together.
+// Called before every save so highlight markup never gets written into stored page content.
+function clearNbFindHighlights(){
+  const ed=document.getElementById('nb-page-editor');
+  if(!ed)return;
+  // strip both this feature's marks AND any leftover global-search highlight marks —
+  // neither should ever be written into the saved page content
+  stripHighlightMarks(ed);
+  _nbFindMatches=[];_nbFindIndex=-1;
+}
+function nbFindInput(){
+  const q=(document.getElementById('nb-find-input')?.value||'').trim();
+  clearNbFindHighlights();
+  if(!q){updateNbFindCount();return;}
+  const ed=document.getElementById('nb-page-editor');
+  if(!ed)return;
+  let re;
+  try{re=new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi');}catch(e){return;}
+  const walker=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT,null);
+  const textNodes=[];
+  let node;
+  while(node=walker.nextNode()){
+    if(node.nodeValue&&node.parentElement&&node.parentElement.tagName!=='SCRIPT'&&node.parentElement.tagName!=='STYLE')textNodes.push(node);
+  }
+  textNodes.forEach(tn=>{
+    const text=tn.nodeValue;
+    re.lastIndex=0;
+    if(!re.test(text))return;
+    re.lastIndex=0;
+    const frag=document.createDocumentFragment();
+    let last=0,m;
+    while((m=re.exec(text))){
+      if(m.index>last)frag.appendChild(document.createTextNode(text.slice(last,m.index)));
+      const mark=document.createElement('mark');
+      mark.className='nb-find-hl';
+      mark.textContent=m[0];
+      frag.appendChild(mark);
+      last=m.index+m[0].length;
+      if(m[0].length===0)re.lastIndex++;
+    }
+    if(last<text.length)frag.appendChild(document.createTextNode(text.slice(last)));
+    tn.parentNode.replaceChild(frag,tn);
+  });
+  _nbFindMatches=Array.from(ed.querySelectorAll('mark.nb-find-hl'));
+  _nbFindIndex=_nbFindMatches.length?0:-1;
+  if(_nbFindIndex>=0)focusNbFindMatch();else updateNbFindCount();
+}
+function updateNbFindCount(){
+  const cnt=document.getElementById('nb-find-count');
+  if(cnt)cnt.textContent=_nbFindMatches.length?`${_nbFindIndex+1}/${_nbFindMatches.length}`:'0/0';
+}
+function focusNbFindMatch(){
+  _nbFindMatches.forEach(m=>m.classList.remove('nb-find-hl-active'));
+  const cur=_nbFindMatches[_nbFindIndex];
+  if(cur){cur.classList.add('nb-find-hl-active');cur.scrollIntoView({behavior:'smooth',block:'center'});}
+  updateNbFindCount();
+}
+function nbFindNav(dir){
+  if(!_nbFindMatches.length)return;
+  _nbFindIndex=(_nbFindIndex+dir+_nbFindMatches.length)%_nbFindMatches.length;
+  focusNbFindMatch();
+}
+function nbFindKeydown(e){
+  if(e.key==='Enter'){e.preventDefault();nbFindNav(e.shiftKey?-1:1);}
+  else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeNbFind();}
+}
 function deleteNotebook(id){if(!confirm('Delete notebook?'))return;delete storage.notebooks[id];_nbUnlockedIds.delete(id);renderNotebooks();saveToDrive();}
 
 // ── PROJECTS (enhanced) ──
@@ -6407,7 +6536,7 @@ async function downloadEncFile(){
     try{
       const ab=await buildSaveBlob();
       const url=URL.createObjectURL(new Blob([ab],{type:'application/octet-stream'}));
-      const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'.enc';a.click();
+      const a=document.createElement('a');a.href=url;a.download=currentDiaryName+'_'+encFilenameStamp()+'.enc';a.click();
       URL.revokeObjectURL(url);
       toast('⬇ Downloaded — replace your old file with this one');
     }finally{hideLoading();closeMoreMenu();}
