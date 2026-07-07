@@ -1260,6 +1260,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('expense-json-input').click()">⬆ Import JSON</button>
             <button class="btn btn-secondary btn-sm" onclick="exportExpensesJSON()">⬇ Export JSON</button>
             <button class="btn btn-secondary btn-sm" onclick="exportExpenseCSV()">⬇ Export CSV</button>
+            <button class="btn btn-secondary btn-sm" onclick="fixImportedExpenseSigns()" title="Corrects entries already sitting here from an import done before the sign fix">🛠 Fix income/expense</button>
           </div>
           <div id="exp-list" style="display:flex;flex-direction:column;gap:8px"></div>
         </div>
@@ -3828,6 +3829,11 @@ function gcalMinutesBefore(dueStr,remindStr){
   return Math.round((d1-d2)/60000);
 }
 function pad2(n){return String(n).padStart(2,'0');}
+function addDaysStr(dateStr,n){
+  const d=new Date(dateStr+'T00:00:00');
+  d.setDate(d.getDate()+n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 function gcalEventPayload(title,dueStr,remindOnDates){
   const cfg=getGCalCfg();
   const hour=(cfg.hour!=null)?cfg.hour:9;
@@ -3844,6 +3850,18 @@ function gcalEventPayload(title,dueStr,remindOnDates){
     reminders:{useDefault:false,overrides}
   };
 }
+// A separate, visible all-day event placed ON the reminder's own date (e.g. "7 days before" / "1 day
+// before"). The overrides above only attach a silent notification to the due-date event — they never
+// put anything on the calendar grid ahead of time — so without this, lead-time reminders never actually
+// "show in calendar" on the day they're meant to nudge you.
+function gcalReminderEventPayload(title,dateStr){
+  return{
+    summary:'🔔 '+title,
+    start:{date:dateStr},
+    end:{date:addDaysStr(dateStr,1)},
+    reminders:{useDefault:false,overrides:[{method:'email',minutes:0}]}
+  };
+}
 async function gcalReq(url,method,body){
   const r=await fetch(url,{method:method||'GET',headers:{Authorization:'Bearer '+gcalAccessToken,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
   if(!r.ok){const t=await r.text().catch(()=>'');throw new Error('HTTP '+r.status+' '+t.slice(0,160));}
@@ -3852,6 +3870,19 @@ async function gcalReq(url,method,body){
 }
 async function gcalUpsertEvent(key,title,dueStr,remindOnDates){
   const payload=gcalEventPayload(title,dueStr,remindOnDates);
+  const existingId=storage.gcalEventMap[key];
+  if(existingId){
+    try{
+      const ev=await gcalReq('https://www.googleapis.com/calendar/v3/calendars/primary/events/'+existingId,'PATCH',payload);
+      storage.gcalEventMap[key]=ev.id;
+      return;
+    }catch(e){ /* event may no longer exist on Google's side — create a fresh one below */ }
+  }
+  const ev=await gcalReq('https://www.googleapis.com/calendar/v3/calendars/primary/events','POST',payload);
+  storage.gcalEventMap[key]=ev.id;
+}
+async function gcalUpsertAllDayEvent(key,title,dateStr){
+  const payload=gcalReminderEventPayload(title,dateStr);
   const existingId=storage.gcalEventMap[key];
   if(existingId){
     try{
@@ -3890,10 +3921,27 @@ async function syncTasksToGoogleCalendar(){
     const seenKeys=new Set();
     for(const t of (storage.todos||[])){
       const key=gcalKeyFor('task',t.id);
-      if(t.done||!t.due){await gcalDeleteEvent(key);continue;}
+      if(t.done||!t.due){
+        await gcalDeleteEvent(key);
+        // Reminder sub-events use index-based keys; delete any that still exist for this task.
+        const existing=Object.keys(storage.gcalEventMap).filter(k=>k.startsWith('taskrem:'+t.id+':'));
+        for(const k of existing)await gcalDeleteEvent(k);
+        continue;
+      }
       seenKeys.add(key);
       const remindOn=(t.reminders||[]).map(r=>computeReminderDate(t.due,r.value,r.unit)).filter(Boolean);
       await gcalUpsertEvent(key,'✅ '+t.text,t.due,remindOn);
+      // Also place a separate, visible event on each reminder's own date (e.g. 7 days / 1 day
+      // before due) so it actually shows up in the calendar on that day, not just as an
+      // invisible notification override on the due-date event above.
+      for(let i=0;i<(t.reminders||[]).length;i++){
+        const r=t.reminders[i];
+        const rd=computeReminderDate(t.due,r.value,r.unit);
+        if(!rd)continue;
+        const rkey=gcalKeyFor('taskrem',t.id+':'+i);
+        seenKeys.add(rkey);
+        await gcalUpsertAllDayEvent(rkey,'Reminder: '+t.text+' (due '+t.due+')',rd);
+      }
     }
     for(const p of (storage.projects||[])){
       const pkey=gcalKeyFor('proj',p.id);
@@ -4829,6 +4877,20 @@ function exportExpensesJSON(){
   toast('⬇ JSON exported ('+exps.length+' entries)');
 }
 
+// One-time repair for entries imported BEFORE the sign-detection fix: those imports flipped any
+// negative-amount source row to "income" (green). This corrects existing data — it does not touch
+// entries you added by hand — by asking, for each currently-positive (income-flagged) entry, whether
+// to flip it to an expense. Safe to run more than once.
+function fixImportedExpenseSigns(){
+  const suspects=(storage.expenses||[]).filter(e=>parseFloat(e.amount)>0);
+  if(!suspects.length)return toast('Nothing to fix — no entries are currently marked as income');
+  if(!confirm(`${suspects.length} entr${suspects.length===1?'y':'ies'} currently show as Income.\n\nTap OK to convert ALL of them to Expense (use this if they came from a JSON import and aren't real income like salary/refunds).\nTap Cancel to leave them as-is.`))return;
+  suspects.forEach(e=>{e.amount=-Math.abs(parseFloat(e.amount)||0);});
+  renderExpenses();
+  if(currentExpTab==='report')renderReport();
+  saveToDrive();
+  toast(`✅ Converted ${suspects.length} entr${suspects.length===1?'y':'ies'} to Expense`);
+}
 function handleExpenseImportJSON(inputEl){
   const file=inputEl.files&&inputEl.files[0]; inputEl.value='';
   if(!file)return;
