@@ -3234,7 +3234,9 @@ function normalizeStorage(){
   if(!storage.expLists)storage.expLists={cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]};
   storage.entries=storage.entries||{};storage.notebooks=storage.notebooks||{};
   if(!storage.emailReminderCfg)storage.emailReminderCfg={enabled:false,email:''};
-  if(!storage.gcalCfg)storage.gcalCfg={enabled:false,hour:9};
+  if(!storage.gcalCfg)storage.gcalCfg={enabled:false,hour:9,clientId:'',connected:false};
+  if(storage.gcalCfg.clientId===undefined)storage.gcalCfg.clientId='';
+  if(storage.gcalCfg.connected===undefined)storage.gcalCfg.connected=false;
   if(!storage.gcalEventMap)storage.gcalEventMap={};
 }
 
@@ -3710,6 +3712,9 @@ function initGoogleClient(){
         gcalAccessToken=resp.access_token;
         gcalTokenExpiresAt=Date.now()+((resp.expires_in||3600)*1000)-60000;
         localStorage.setItem('sd_google_connected','1');
+        // Remember the connection against THIS diary (synced via OneDrive), not just this device/browser,
+        // so re-opening this diary — on any device — auto-reconnects without configuring it again.
+        const cfg=getGCalCfg();cfg.connected=true;saveToDrive();
         refreshGCalBox();
         toast('✅ Google Calendar connected');
         if(getGCalCfg().enabled)syncTasksToGoogleCalendar();
@@ -3737,7 +3742,11 @@ function tryAutoConnectGoogle(attempts){
 function connectGoogleCalendar(){
   const idInp=document.getElementById('gcal-client-id');
   const id=idInp?idInp.value.trim():'';
-  if(id){GOOGLE_CLIENT_ID=id;localStorage.setItem('sd_google_client_id',id);}
+  if(id){
+    GOOGLE_CLIENT_ID=id;
+    localStorage.setItem('sd_google_client_id',id); // device-level fallback
+    const cfg=getGCalCfg();cfg.clientId=id;saveToDrive(); // saved with this diary so it travels with it
+  }
   if(!GOOGLE_CLIENT_ID){toast('❌ Paste your Google OAuth Client ID first');return;}
   if(!initGoogleClient()){toast('❌ Google sign-in library still loading — try again in a second');return;}
   googleTokenClient.requestAccessToken({prompt:gcalConnected()?'':'consent'});
@@ -3745,8 +3754,25 @@ function connectGoogleCalendar(){
 function disconnectGoogleCalendar(){
   gcalAccessToken=null;gcalTokenExpiresAt=0;
   localStorage.removeItem('sd_google_connected');
+  const cfg=getGCalCfg();cfg.connected=false;saveToDrive();
   refreshGCalBox();
   toast('Disconnected — existing calendar events are left as they are');
+}
+// Runs once a diary is opened: loads its own saved Google Calendar client ID (if any) and,
+// if this diary was connected before, silently reconnects and syncs — no manual "Connect"/"Sync now" needed.
+function initGCalForDiary(){
+  const cfg=getGCalCfg();
+  if(cfg.clientId){
+    GOOGLE_CLIENT_ID=cfg.clientId;
+    localStorage.setItem('sd_google_client_id',cfg.clientId);
+  } else if(GOOGLE_CLIENT_ID){
+    // Migrate a device-level client ID set before this feature saved it per-diary
+    cfg.clientId=GOOGLE_CLIENT_ID;
+  }
+  refreshGCalBox();
+  if(cfg.connected||localStorage.getItem('sd_google_connected')==='1'){
+    tryAutoConnectGoogle();
+  }
 }
 function settingsToggleGCal(){
   const cfg=getGCalCfg();
@@ -4174,6 +4200,7 @@ function launchApp(){
   navTo('dashboard');
   initCal();
   renderCalHighlights();
+  initGCalForDiary();
   document.addEventListener('keydown',globalKey);
   startAutoSyncLoop();
   resetIdleLockTimer();
@@ -4823,14 +4850,18 @@ function handleExpenseImportJSON(inputEl){
       const existingKey=e=>[e.date,e.category,parseFloat(e.amount),e.account,e.note].join('§');
       const seen=new Set((storage.expenses||[]).map(existingKey));
 
-      let added=0, skipped=0, catsCreated=0, accsCreated=0, modesCreated=0;
+      let added=0, skipped=0, catsCreated=0, accsCreated=0, modesCreated=0, negFlipped=0;
       list.forEach(row=>{
         const date=String(row.date||'').slice(0,10);
         const rawAmt=parseFloat(row.amount);
         if(!date||isNaN(rawAmt)){skipped++;return;}
-        // Imported file convention: positive amount = expense (stored negative/red),
-        // negative amount = income or refund (stored positive/green) — matches this app's own convention.
-        const amt=rawAmt<0?Math.abs(rawAmt):-Math.abs(rawAmt);
+        // Every imported entry is treated as an expense (stored negative/red), regardless of the
+        // sign it had in the source file. Some source apps use a negative amount for transfers,
+        // refunds, or cashback rather than true income, so guessing "income" from sign alone was
+        // misclassifying real expenses. If a handful of entries really were income/refunds, just
+        // edit them to "Income" after import.
+        if(rawAmt<0)negFlipped++;
+        const amt=-Math.abs(rawAmt);
         const category=String(row.category||'').trim();
         const account=String(row.account||'').trim();
         const mode=String(row.mode||'').trim();
@@ -4850,12 +4881,14 @@ function handleExpenseImportJSON(inputEl){
       });
 
       renderExpenses();
+      if(currentExpTab==='report')renderReport();
       saveToDrive();
       let msg=`✅ Imported ${added} entr${added===1?'y':'ies'}`;
       if(skipped)msg+=`, skipped ${skipped}`;
       const created=[catsCreated&&catsCreated+' categor'+(catsCreated===1?'y':'ies'),accsCreated&&accsCreated+' account'+(accsCreated===1?'':'s'),modesCreated&&modesCreated+' mode'+(modesCreated===1?'':'s')].filter(Boolean);
       if(created.length)msg+=` · created ${created.join(', ')}`;
-      toast(msg,4000);
+      if(negFlipped)msg+=` · ${negFlipped} had a negative amount in the file and were imported as expenses too — edit any real refunds to Income`;
+      toast(msg,5000);
     }catch(e){
       console.error(e);
       toast('❌ Import failed: '+e.message);
@@ -5141,7 +5174,7 @@ function editExpense(id){
   initAttachUI('expense',e.attachments);
   openModal('modal-expense');
 }
-function deleteExpense(id){if(!confirm('Delete?'))return;storage.expenses=storage.expenses.filter(x=>x.id!==id);renderExpenses();saveToDrive();}
+function deleteExpense(id){if(!confirm('Delete?'))return;storage.expenses=storage.expenses.filter(x=>x.id!==id);renderExpenses();if(currentExpTab==='report')renderReport();saveToDrive();}
 function submitExpense(){
   const date=document.getElementById('exp-date').value;
   const cat=document.getElementById('exp-category').value.trim();
@@ -5168,7 +5201,7 @@ function submitExpense(){
   const attachments=getAttachStage('expense');
   if(editingExpenseId){const e=storage.expenses.find(x=>x.id===editingExpenseId);if(e)Object.assign(e,{date,category:cat,amount:amt,mode,account:acc,note,attachments});}
   else storage.expenses.push({id:uuid(),date,category:cat,amount:amt,mode,account:acc,note,attachments});
-  closeModal('modal-expense');renderExpenses();saveToDrive();
+  closeModal('modal-expense');renderExpenses();if(currentExpTab==='report')renderReport();saveToDrive();
 }
 
 
