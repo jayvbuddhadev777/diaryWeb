@@ -1318,7 +1318,9 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
           <div id="due-tasks-list" style="display:flex;flex-direction:column;max-height:220px;overflow-y:auto"></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <button class="fmt-btn" onclick="prevDiaryEntry()" title="Previous entry">← Prev</button>
           <div class="date-chip" id="diary-date-chip">📅 Today</div>
+          <button class="fmt-btn" onclick="nextDiaryEntry()" title="Next entry">Next →</button>
           <div id="diary-weather-badge" style="display:none;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:600;color:var(--text-mid)"></div>
         </div>
         <div style="display:flex;flex-direction:column;flex:1">
@@ -2943,40 +2945,12 @@ async function confirmDexportDecrypt(){
     btn.disabled=false; btn.textContent='Decrypt';
   }
 }
-// Resolve which field in a decrypted .dexport payload actually holds notebooks, across builds
-// that may name/shape the container differently. Returns a dict-by-id (never mutates `data`).
-// - 'notebooks' is the canonical key; used as-is if present and object-shaped.
-// - Some builds may call it 'books'/'diaries'/'folders'/'notebook'.
-// - 'notes' is ambiguous: an ARRAY of notes means sticky notes (handled elsewhere), but some
-//   builds use 'notes' as a DICT of notebook-like objects (each with its own pages/entries) —
-//   that shape must NOT be treated as sticky notes, or its pages silently vanish on import.
-function resolveNotebooksAlias(data){
-  if(!data||typeof data!=='object')return null;
-  if(data.notebooks&&typeof data.notebooks==='object')return data.notebooks;
-  const aliasKeys=['books','diaries','folders','notebook'];
-  for(const k of aliasKeys){
-    if(data[k]&&typeof data[k]==='object'&&!Array.isArray(data[k]))return data[k];
-  }
-  if(data.notes&&typeof data.notes==='object'&&!Array.isArray(data.notes)){
-    // Looks like a dict of notebook-shaped objects (has pages, or name+icon, etc.), not sticky notes.
-    const vals=Object.values(data.notes);
-    const looksLikeNotebooks=vals.length===0||vals.some(v=>v&&typeof v==='object'&&(v.pages||v.name||v.title));
-    if(looksLikeNotebooks)return data.notes;
-  }
-  return null;
-}
 function showDexportPreview(data){
   // Normalize alternate keys for preview counting
   const nData=Object.assign({},data);
   if(nData.checklists&&!nData.lists)nData.lists=nData.checklists;
   if(nData.tasks&&!nData.todos)nData.todos=nData.tasks;
-  const resolvedNbs=resolveNotebooksAlias(nData);
-  if(resolvedNbs)nData.notebooks=resolvedNbs;
-  else if(Object.keys(data).some(k=>/note|book|page|diar|folder/i.test(k))){
-    console.warn('[.dexport import] notebooks not recognized. Top-level keys:', Object.keys(data));
-  }
-  // Only treat 'notes' as sticky notes if it wasn't already claimed as the notebooks container above.
-  if(nData.notes&&!nData.sticky_notes&&Array.isArray(nData.notes)&&nData.notebooks!==nData.notes)nData.sticky_notes=nData.notes;
+  if(nData.notes&&!nData.sticky_notes&&Array.isArray(nData.notes))nData.sticky_notes=nData.notes;
   const countObj=o=>o&&typeof o==='object'?Object.keys(o).length:0;
   // key = storage key checked/merged on commit, count = how many items, label = row text
   const rowDefs=[
@@ -2997,11 +2971,6 @@ function showDexportPreview(data){
         <span>${r.label(r.count)}</span>
       </label>`).join('')
     : '<div class="empty"><div class="empty-icon">🤷</div><p>Nothing recognizable was found in this file</p></div>';
-  if(!rowDefs.length){
-    // Nothing matched any known shape — dump top-level keys (not values, to avoid logging diary
-    // content) so this can be diagnosed from an unfamiliar export format.
-    console.warn('[.dexport import] no recognizable data. Top-level keys:', Object.keys(data));
-  }
   openModal('modal-dexport-preview');
 }
 // Convert plain-text diary note to HTML. Handles line-based lists (- / * / numbered),
@@ -3074,7 +3043,15 @@ function normalizeDexportData(data){
       // Some builds use 'title' instead of 'name'
       if(!l.name&&l.title){l.name=l.title;}
       if(!l.name)l.name='Untitled Checklist';
-      // Normalize items array
+      // Normalize items: some builds store items as an object/dict keyed by id
+      // instead of an array — convert instead of discarding, or imports go blank.
+      if(l.items&&!Array.isArray(l.items)&&typeof l.items==='object'){
+        l.items=Object.entries(l.items).map(([k,v])=>{
+          if(typeof v==='string')return{id:k||uuid(),text:v,done:false};
+          if(typeof v==='object'&&v)return{id:v.id||k||uuid(),text:v.text||v.name||v.title||v.label||v.content||k,done:!!(v.done||v.checked||v.completed)};
+          return null;
+        }).filter(Boolean);
+      }
       if(!Array.isArray(l.items))l.items=[];
       l.items=l.items.map(item=>{
         if(!item||typeof item!=='object'){
@@ -3083,10 +3060,11 @@ function normalizeDexportData(data){
           return null;
         }
         if(!item.id)item.id=uuid();
-        // Some builds use 'name'/'title'/'label' instead of 'text'
+        // Some builds use 'name'/'title'/'label'/'content' instead of 'text'
         if(!item.text&&item.name){item.text=item.name;}
         if(!item.text&&item.title){item.text=item.title;}
         if(!item.text&&item.label){item.text=item.label;}
+        if(!item.text&&item.content){item.text=item.content;}
         if(!item.text)item.text='';
         // Normalize done/checked/completed
         if(item.done===undefined){
@@ -3126,42 +3104,6 @@ function normalizeDexportData(data){
       if(e&&typeof e.note==='string')e.note=convertPlainNoteToHtml(e.note);
     });
   }
-  // Resolve notebooks from whichever key actually holds them (see resolveNotebooksAlias), so a
-  // dict-of-notebooks stored under an alternate key (or under 'notes') isn't lost entirely.
-  if(!data.notebooks){
-    const resolved=resolveNotebooksAlias(data);
-    if(resolved)data.notebooks=resolved;
-  }
-  // Normalize notebooks/pages structure. Some builds store pages as an array instead of a
-  // dict-by-id, or use 'name'/'body' instead of 'title'/'content' — without this, those pages
-  // silently fail to merge (missing id) or render (missing title/content).
-  if(data.notebooks&&typeof data.notebooks==='object'){
-    Object.keys(data.notebooks).forEach(nbId=>{
-      let nb=data.notebooks[nbId];
-      if(!nb||typeof nb!=='object')return;
-      if(!nb.pages)nb.pages={};
-      // Array-of-pages format → convert to dict keyed by id
-      if(Array.isArray(nb.pages)){
-        const dict={};
-        nb.pages.forEach(p=>{
-          if(!p||typeof p!=='object')return;
-          const id=p.id||uuid();
-          dict[id]=p;
-        });
-        nb.pages=dict;
-      }
-      Object.keys(nb.pages).forEach(pageId=>{
-        let p=nb.pages[pageId];
-        if(typeof p==='string'){p={content:p};nb.pages[pageId]=p;}
-        if(!p||typeof p!=='object')return;
-        if(!p.title&&p.name)p.title=p.name;
-        if(!p.content&&p.body)p.content=p.body;
-        if(!p.content&&typeof p.note==='string')p.content=p.note;
-        if(!p.title)p.title='Untitled';
-        if(typeof p.content==='string')p.content=convertPlainNoteToHtml(p.content);
-      });
-    });
-  }
   return data;
 }
 function commitDexportImport(){
@@ -3187,8 +3129,8 @@ function commitDexportImport(){
       added++;
     });
   });
-  // Dict collections keyed by date: only fill in keys we don't already have, so nothing existing is overwritten.
-  ['entries','secret_entries'].forEach(key=>{
+  // Dict collections keyed by date/name: only fill in keys we don't already have, so nothing existing is overwritten.
+  ['entries','secret_entries','notebooks'].forEach(key=>{
     if(!includedKeys.has(key)||!data[key]||typeof data[key]!=='object')return;
     Object.entries(data[key]).forEach(([k,v])=>{
       if(storage[key][k]!==undefined){skippedDupes++;return;}
@@ -3196,30 +3138,6 @@ function commitDexportImport(){
       added++;
     });
   });
-  // Notebooks: a notebook is a container ({name, icon, pages:{...}}), not a leaf item, so if a
-  // notebook with the same id already exists locally we must merge its *pages* individually rather
-  // than skipping the whole notebook — otherwise every page inside an already-existing notebook
-  // (e.g. one created before the export) is silently dropped on import.
-  if(includedKeys.has('notebooks')&&data.notebooks&&typeof data.notebooks==='object'){
-    Object.entries(data.notebooks).forEach(([nbId,nb])=>{
-      if(!nb||typeof nb!=='object')return;
-      const existingNb=storage.notebooks[nbId];
-      if(existingNb===undefined){
-        // Whole notebook is new: bring it in as-is (counting its pages, if any).
-        storage.notebooks[nbId]=nb;
-        added+=nb.pages&&typeof nb.pages==='object'?Math.max(1,Object.keys(nb.pages).length):1;
-        return;
-      }
-      // Notebook already exists locally: merge pages in, skip pages we already have by id.
-      existingNb.pages=existingNb.pages||{};
-      const incomingPages=nb.pages&&typeof nb.pages==='object'?nb.pages:{};
-      Object.entries(incomingPages).forEach(([pageId,page])=>{
-        if(existingNb.pages[pageId]!==undefined){skippedDupes++;return;}
-        existingNb.pages[pageId]=page;
-        added++;
-      });
-    });
-  }
   // Expense managed lists: only merge alongside expenses, since categories/modes/accounts are meaningless without them.
   if(includedKeys.has('expenses')&&data.expLists){
     ['cats','modes','accs'].forEach(k=>{
@@ -5205,6 +5123,31 @@ function loadDiaryEntry(){
     renderDueTasksWidget();
   }
 }
+// ── PREV / NEXT ENTRY NAVIGATION ──
+// Jumps to the nearest diary entry that actually has content, skipping blank
+// calendar days. (storage.entries is always kept in sync via saveEntryInMemory,
+// which markDirty() calls on every keystroke, so this reads live data.)
+function prevDiaryEntry(){ navDiaryEntry(-1); }
+function nextDiaryEntry(){ navDiaryEntry(1); }
+function navDiaryEntry(dir){
+  if(!storage){toast('Open a diary first');return;}
+  const dates=Object.keys(storage.entries||{}).sort();
+  if(!dates.length){toast('No other diary entries yet');return;}
+  let target=null;
+  if(dir<0){
+    for(let i=dates.length-1;i>=0;i--){ if(dates[i]<currentDate){target=dates[i];break;} }
+    if(!target){toast('⏮️ This is the earliest entry');return;}
+  }else{
+    for(let i=0;i<dates.length;i++){ if(dates[i]>currentDate){target=dates[i];break;} }
+    if(!target){toast('⏭️ This is the most recent entry');return;}
+  }
+  currentDate=target;
+  const dsub=document.getElementById('header-date-sub');
+  if(dsub)dsub.textContent=fmtDate(target);
+  calViewDate=new Date(target+'T00:00:00');
+  renderCal();
+  loadDiaryEntry();
+}
 function fmt(cmd){document.execCommand(cmd,false,null);}
 function fmtBlock(tag){document.execCommand('formatBlock',false,tag);}
 function insertHR(){document.execCommand('insertHTML',false,'<hr/>');}
@@ -5339,6 +5282,9 @@ function renderChecklists(){
   let lists=storage.lists||[];
   // Normalize any malformed checklist data in-place (from older imports)
   lists.forEach(l=>{
+    // Every checklist must have a stable id, or delete/select/edit actions
+    // silently fail to match it (they compare against this id).
+    if(!l.id)l.id=uuid();
     if(!l.name&&l.title){l.name=l.title;}
     // Handle items as object/dict instead of array
     if(l.items&&!Array.isArray(l.items)&&typeof l.items==='object'){
@@ -5350,6 +5296,7 @@ function renderChecklists(){
     }
     if(!l.items)l.items=[];
     l.items.forEach(item=>{
+      if(!item.id)item.id=uuid();
       if(!item.text&&item.name){item.text=item.name;}
       if(!item.text&&item.title){item.text=item.title;}
       if(!item.text&&item.label){item.text=item.label;}
