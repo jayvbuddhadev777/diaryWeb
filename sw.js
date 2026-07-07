@@ -1,7 +1,7 @@
 // Secure Diary — Service Worker
 // Caches the app shell so it works offline after first load.
 
-const CACHE = 'secure-diary-v12';
+const CACHE = 'secure-diary-v13';
 
 // Files to cache on install (the app shell)
 const SHELL = [

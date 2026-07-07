@@ -2271,6 +2271,18 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   </div>
 </div>
 
+<!-- Expense chart entry details (shown on double-click of a chart bar) -->
+<div class="modal-overlay" id="modal-chart-detail">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2 id="ced-title">💰 Entries</h2>
+    <div id="ced-body" style="display:flex;flex-direction:column;gap:8px;max-height:50dvh;overflow-y:auto"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-chart-detail')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Search modal -->
 <div class="modal-overlay" id="modal-search">
   <div class="modal">
@@ -4981,6 +4993,7 @@ function setReportMode(mode){
   document.getElementById('rep-range-controls').style.display=mode==='range'?'flex':'none';
   renderReport();
 }
+let _repFiltered=[],_repGroupKeyFor=null,_repGroupLabel='';
 function renderReport(){
   const exps=storage.expenses||[];
   // populate month/year selectors
@@ -5057,13 +5070,14 @@ function renderReport(){
   }
   document.getElementById('rep-chart-title').textContent='💰 Spending by '+GROUP_LABELS[groupBy];
   document.getElementById('rep-table-title').textContent='📋 '+GROUP_LABELS[groupBy]+' Breakdown';
+  _repFiltered=filtered;_repGroupKeyFor=groupKeyFor;_repGroupLabel=GROUP_LABELS[groupBy];
   const catMap={};
   filtered.filter(e=>parseFloat(e.amount)<0).forEach(e=>{const c=groupKeyFor(e);catMap[c]=(catMap[c]||0)+Math.abs(parseFloat(e.amount)||0);});
   const catEntries=Object.entries(catMap).sort((a,b)=>groupBy==='date'||groupBy==='month'?a[0].localeCompare(b[0]):b[1]-a[1]);
   const maxCat=catEntries.length?Math.max(...catEntries.map(e=>e[1])):1;
   const catColors=['#1a3a6b','#1565c0','#0097a7','#00897b','#558b2f','#f57f17','#e65100','#c62828','#6a1b9a','#4527a0'];
   document.getElementById('rep-cat-chart').innerHTML=catEntries.length?catEntries.map(([cat,amt],i)=>`
-    <div style="margin-bottom:10px">
+    <div style="margin-bottom:10px;cursor:pointer" title="Double-click for entry details" ondblclick="showGroupEntryDetails('${cat.replace(/'/g,"\\'")}','${groupKeyDisplay(cat).replace(/'/g,"\\'")}')">
       <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
         <span style="font-weight:600">${escH(groupKeyDisplay(cat))}</span>
         <span style="font-family:monospace;color:var(--danger)">₹${amt.toFixed(0)}</span>
@@ -5085,7 +5099,7 @@ function renderReport(){
     while(cursor<=end){
       const ds=cursor.toISOString().slice(0,10);
       const amt=dailyMap[ds]||0;
-      bars.push(`<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:18px;cursor:default" title="${fmtDate(ds)}: ₹${amt.toFixed(0)}"><div style="width:14px;background:${amt>0?'var(--primary)':'var(--border)'};border-radius:3px 3px 0 0;height:${amt>0?Math.max(4,(amt/maxDay*80)).toFixed(0):2}px;transition:height 0.3s"></div><div style="font-size:8px;color:var(--text-muted)">${cursor.getDate()}</div></div>`);
+      bars.push(`<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:18px;cursor:${amt>0?'pointer':'default'}" title="${fmtDate(ds)}: ₹${amt.toFixed(0)}${amt>0?' (double-click for details)':''}" ${amt>0?`ondblclick="showDayEntryDetails('${ds}')"`:''}><div style="width:14px;background:${amt>0?'var(--primary)':'var(--border)'};border-radius:3px 3px 0 0;height:${amt>0?Math.max(4,(amt/maxDay*80)).toFixed(0):2}px;transition:height 0.3s"></div><div style="font-size:8px;color:var(--text-muted)">${cursor.getDate()}</div></div>`);
       cursor.setDate(cursor.getDate()+1);
     }
     dayBars=bars.join('');
@@ -5228,6 +5242,32 @@ function exportReportPDF(){
     <script>window.onload=()=>{window.print();};<\/script>
   </body></html>`);
   win.document.close();
+}
+// Drill-down details shown when a report chart bar is double-clicked
+function showChartEntryDetails(title,list){
+  document.getElementById('ced-title').textContent=title;
+  const sorted=[...list].sort((a,b)=>b.date.localeCompare(a.date));
+  document.getElementById('ced-body').innerHTML=sorted.length?sorted.map(e=>{
+    const amt=parseFloat(e.amount)||0;
+    return `<div style="border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;cursor:pointer" onclick="closeModal('modal-chart-detail');editExpense('${e.id}')">
+      <div style="min-width:0">
+        <div style="font-weight:700;font-size:13px">${escH(e.category||'—')}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${fmtDate(e.date)} · ${escH(e.mode||'—')}${e.account?' · '+escH(e.account):''}</div>
+        ${e.note?`<div style="font-size:12px;margin-top:4px;color:var(--text)">${escH(e.note)}</div>`:''}
+      </div>
+      <div style="font-family:monospace;font-weight:700;white-space:nowrap;flex-shrink:0;color:${amt<0?'var(--danger)':'var(--accent)'}">${amt<0?'-':'+'}₹${Math.abs(amt).toFixed(0)}</div>
+    </div>`;
+  }).join(''):'<div class="empty"><div class="empty-icon">💰</div><p>No entries</p></div>';
+  openModal('modal-chart-detail');
+}
+function showGroupEntryDetails(groupKey,groupDisplay){
+  if(!_repGroupKeyFor)return;
+  const list=_repFiltered.filter(e=>parseFloat(e.amount)<0&&_repGroupKeyFor(e)===groupKey);
+  showChartEntryDetails('💰 '+groupDisplay+' ('+list.length+')',list);
+}
+function showDayEntryDetails(ds){
+  const list=_repFiltered.filter(e=>e.date===ds&&parseFloat(e.amount)<0);
+  showChartEntryDetails('💰 '+fmtDate(ds)+' ('+list.length+')',list);
 }
 function editExpense(id){
   const e=storage.expenses.find(x=>x.id===id);if(!e)return;
