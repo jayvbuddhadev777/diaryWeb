@@ -1731,6 +1731,13 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Reminders show on the dashboard, notifications (if enabled) and the Calendar view when they fall due. Needs a due date set.</div>
     </div>
     <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600">
+        <input type="checkbox" id="task-sync-cal" style="width:18px;height:18px;accent-color:var(--primary);cursor:pointer"/>
+        🗓️ Sync this task with Google Calendar
+      </label>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Only applies if Google Calendar Reminders is enabled in Settings. Needs a due date set.</div>
+    </div>
+    <div class="form-group">
       <label class="form-label">📎 Attachments</label>
       <div id="attach-strip-task" class="attach-strip"></div>
       <div class="attach-btns">
@@ -3921,7 +3928,7 @@ async function syncTasksToGoogleCalendar(){
     const seenKeys=new Set();
     for(const t of (storage.todos||[])){
       const key=gcalKeyFor('task',t.id);
-      if(t.done||!t.due){
+      if(t.done||!t.due||t.syncCal===false){
         await gcalDeleteEvent(key);
         // Reminder sub-events use index-based keys; delete any that still exist for this task.
         const existing=Object.keys(storage.gcalEventMap).filter(k=>k.startsWith('taskrem:'+t.id+':'));
@@ -4313,7 +4320,7 @@ function closeMoreMenu(){document.getElementById('more-menu').classList.remove('
 // ── FAB ──
 function fabAction(){
   if(currentPanel==='diary')return;
-  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';taskReminderDraft=[];renderTaskReminderChips();initAttachUI('task',[]);openModal('modal-task');return;}
+  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';document.getElementById('task-sync-cal').checked=true;taskReminderDraft=[];renderTaskReminderChips();initAttachUI('task',[]);openModal('modal-task');return;}
   if(currentPanel==='lists'){createChecklist();return;}
   if(currentPanel==='expenses'){
     editingExpenseId=null;
@@ -4691,7 +4698,7 @@ function renderTasks(){
 }
 function setTaskFilter(f,el){taskFilter=f;document.querySelectorAll('#panel-tasks .pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderTasks();}
 function toggleTask(id){const t=storage.todos.find(x=>x.id===id);if(t){t.done=!t.done;vibrate(t.done?[10,30,10]:8);renderTasks();if(currentPanel==='diary')renderDueTasksWidget();saveToDrive();}}
-function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');taskReminderDraft=(t.reminders||[]).map(r=>({id:r.id||uuid(),value:r.value,unit:r.unit}));renderTaskReminderChips();initAttachUI('task',t.attachments);openModal('modal-task');}
+function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');document.getElementById('task-sync-cal').checked=(t.syncCal!==false);taskReminderDraft=(t.reminders||[]).map(r=>({id:r.id||uuid(),value:r.value,unit:r.unit}));renderTaskReminderChips();initAttachUI('task',t.attachments);openModal('modal-task');}
 function deleteTask(id){if(!confirm('Delete task?'))return;storage.todos=storage.todos.filter(x=>x.id!==id);renderTasks();saveToDrive();}
 function submitTask(){
   const text=document.getElementById('task-desc').value.trim();if(!text)return toast('Enter task description');
@@ -4699,9 +4706,11 @@ function submitTask(){
   const tags=document.getElementById('task-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
   const attachments=getAttachStage('task');
   const reminders=taskReminderDraft.map(r=>({id:r.id,value:r.value,unit:r.unit}));
-  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;t.attachments=attachments;t.reminders=reminders;}}
-  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr(),attachments,reminders});}
+  const syncCal=document.getElementById('task-sync-cal').checked;
+  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;t.attachments=attachments;t.reminders=reminders;t.syncCal=syncCal;}}
+  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr(),attachments,reminders,syncCal});}
   closeModal('modal-task');renderTasks();renderCalHighlights();saveToDrive();
+  scheduleGCalSync(); // pick up a newly ticked/unticked sync flag right away, not just on the next unrelated save
 }
 
 // ── CHECKLISTS ──
