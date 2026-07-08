@@ -424,6 +424,23 @@ html, body {
 }
 #diary-editor:empty::before { content: attr(data-placeholder); color: var(--text-muted); font-style: italic; }
 
+/* Imported content (e.g. from a .dexport file) often carries <p>/<div> tags with browser-default
+   margins, which stack up into large visible gaps. Normalize spacing and collapse fully-empty blocks. */
+#diary-editor p,
+#diary-editor div {
+  margin: 0 0 0.5em;
+}
+#diary-editor p:last-child,
+#diary-editor div:last-child {
+  margin-bottom: 0;
+}
+#diary-editor p:empty,
+#diary-editor div:empty,
+#diary-editor p:has(> br:only-child):not(:only-child),
+#diary-editor div:has(> br:only-child):not(:only-child) {
+  display: none;
+}
+
 /* Lists and formatted content in diary editor */
 #diary-editor ul,
 #diary-editor ol {
@@ -1359,11 +1376,23 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <div class="panel" id="panel-tasks">
         <div class="stats-row" id="task-stats"></div>
         <input type="text" class="form-input" id="task-search" placeholder="🔍 Search tasks…" oninput="renderTasks()" style="margin-bottom:8px"/>
-        <div class="filter-pills">
-          <div class="pill active" onclick="setTaskFilter('all',this)">All</div>
-          <div class="pill" onclick="setTaskFilter('pending',this)">Pending</div>
-          <div class="pill" onclick="setTaskFilter('done',this)">Done</div>
-          <div class="pill" onclick="setTaskFilter('overdue',this)">⚠ Overdue</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+          <div class="filter-pills" style="flex:1">
+            <div class="pill active" onclick="setTaskFilter('all',this)">All</div>
+            <div class="pill" onclick="setTaskFilter('pending',this)">Pending</div>
+            <div class="pill" onclick="setTaskFilter('done',this)">Done</div>
+            <div class="pill" onclick="setTaskFilter('overdue',this)">⚠ Overdue</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="task-select-btn" onclick="toggleTaskSelectMode()" style="width:auto;padding:7px 10px;font-size:12px">☑ Select</button>
+        </div>
+        <div id="task-select-bar" style="display:none;align-items:center;gap:8px;padding:8px 12px;background:var(--danger-light);border:1px solid var(--danger);border-radius:var(--radius);margin-bottom:8px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer">
+            <input type="checkbox" id="task-select-all" onchange="toggleTaskSelectAll(this.checked)" style="width:18px;height:18px;accent-color:var(--danger)"/>
+            Select All
+          </label>
+          <span id="task-select-count" style="flex:1;font-size:12px;color:var(--text-muted);font-weight:600">0 selected</span>
+          <button class="btn btn-danger btn-sm" onclick="deleteSelectedTasks()" style="width:auto;padding:7px 12px;font-size:12px">🗑 Delete</button>
+          <button class="btn btn-secondary btn-sm" onclick="toggleTaskSelectMode()" style="width:auto;padding:7px 12px;font-size:12px">Cancel</button>
         </div>
         <div id="task-list" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
@@ -1786,6 +1815,19 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 <!-- ══════════════════════════════════════ MODALS ══════════════════════════════════════ -->
 
 <!-- Login -->
+<!-- Generic Confirm Dialog (replaces native window.confirm, which can silently no-op in some embedded/PWA contexts) -->
+<div class="modal-overlay" id="modal-confirm">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2 id="confirm-title">⚠️ Confirm</h2>
+    <p id="confirm-message" style="font-size:14px;color:var(--text-mid);margin-bottom:16px;white-space:pre-line"></p>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="confirm-cancel-btn" onclick="_confirmResolve(false)">Cancel</button>
+      <button class="btn btn-primary" id="confirm-ok-btn" onclick="_confirmResolve(true)">OK</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-login">
   <div class="modal">
     <div class="modal-handle"></div>
@@ -1869,6 +1911,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="form-group">
       <label class="form-label">Tags (comma separated)</label>
       <input type="text" class="form-input" id="task-tags" placeholder="work, urgent"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">🔁 Repeat</label>
+      <select class="form-input" id="task-repeat">
+        <option value="none">Does not repeat</option>
+        <option value="daily">Every day</option>
+        <option value="weekly">Every week</option>
+        <option value="monthly">Every month</option>
+        <option value="yearly">Every year</option>
+      </select>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:5px">When you complete a repeating task, the next one is created automatically with the due date (and any reminders) moved forward. Needs a due date set.</div>
     </div>
     <div class="form-group">
       <label class="form-label">🔔 Reminders (before due date)</label>
@@ -2791,6 +2844,20 @@ function escH(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/
 function toast(msg,dur=2400){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),dur);}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 function openModal(id){document.getElementById(id).classList.add('open');}
+
+// ── IN-APP CONFIRM (replaces window.confirm) ──
+// Native confirm() can silently no-op (return false with no visible dialog) in some
+// embedded/PWA/webview contexts, which made buttons like "Delete task" appear completely
+// dead. This shows our own modal instead and resolves a Promise<boolean>.
+let _confirmResolve=null;
+function showConfirm(message,title){
+  return new Promise(resolve=>{
+    document.getElementById('confirm-title').textContent=title||'⚠️ Confirm';
+    document.getElementById('confirm-message').textContent=message;
+    _confirmResolve=(result)=>{closeModal('modal-confirm');_confirmResolve=null;resolve(result);};
+    openModal('modal-confirm');
+  });
+}
 function showLoading(msg){document.getElementById('loading-msg').textContent=msg||'Loading…';document.getElementById('loading-overlay').classList.add('open');}
 function hideLoading(){document.getElementById('loading-overlay').classList.remove('open');}
 function setSyncBadge(state,label){const b=document.getElementById('sync-badge');b.textContent=label;b.className='sync-badge'+(state==='syncing'?' syncing':state==='error'?' error':'');}
@@ -2809,7 +2876,7 @@ let msalApp=null,accessToken=null,userProfile=null;
 let driveFiles=[],selectedDriveFile=null,driveFileId=null;
 let currentDiaryName=null,currentPassword=null,storage=null;
 let currentDate=todayStr(),calViewDate=new Date();
-let dirty=false,autoSaveTimer=null,taskFilter='all';
+let dirty=false,autoSaveTimer=null,taskFilter='all',_savingNow=false;
 // Auto-sync / conflict / idle-lock state
 let lastKnownRemoteModified=null; // ISO timestamp of the remote .enc file as of our last load/save
 const AUTO_SYNC_MS=15000;         // background sync-poll cadence (push pending edits / pull remote changes)
@@ -3263,7 +3330,7 @@ function copyRecoveryKey(){
 async function addRecoveryKeyToCurrentDiary(){
   if(!storage||!currentPassword){toast('Open your diary first');return;}
   const hasExisting=!!(currentRecoveryKey||lastRecoveryBlobRaw);
-  if(hasExisting && !confirm('This generates a NEW recovery key and permanently retires the old one. Continue?'))return;
+  if(hasExisting && !(await showConfirm('This generates a NEW recovery key and permanently retires the old one. Continue?')))return;
   closeModal('modal-settings');
   showLoading('Generating recovery key…');
   try{
@@ -3783,6 +3850,7 @@ async function getRemoteItemMeta(id){
 
 async function saveToDrive(){
   if(!storage||!currentPassword)return;
+  _savingNow=true;
   if(isOfflineMode){
     // Offline mode: re-encrypt to in-memory blob; user downloads to persist
     setSyncBadge('syncing','Saving…');
@@ -3794,6 +3862,7 @@ async function saveToDrive(){
       document.getElementById('save-status').textContent='✅ Saved (offline) '+new Date().toLocaleTimeString();
       dirty=false;
     }catch(e){setSyncBadge('error','Error!');toast('❌ Save failed: '+e.message);}
+    finally{_savingNow=false;}
     return;
   }
   // OneDrive mode: encrypt and upload to the .enc file on OneDrive
@@ -3835,6 +3904,8 @@ async function saveToDrive(){
   }catch(e){
     setSyncBadge('error','Error!');
     toast('❌ OneDrive save failed: '+e.message);
+  }finally{
+    _savingNow=false;
   }
 }
 
@@ -3911,6 +3982,7 @@ function startAutoSyncLoop(){
 function stopAutoSyncLoop(){ clearInterval(window._autoSyncInterval); }
 async function autoSyncTick(){
   if(isOfflineMode||!driveFileId||!currentPassword)return;
+  if(_savingNow)return; // don't pull while a save is in-flight
   if(dirty){ saveEntryAndDrive(); return; }
   try{
     const meta=await getRemoteItemMeta(driveFileId);
@@ -3922,6 +3994,7 @@ async function autoSyncTick(){
 // Pulls the latest saved version from OneDrive (e.g. edited on another device) into this session.
 // Only called when we have no unsaved local edits, so it's always safe to apply.
 async function pullRemoteChanges(newModified){
+  if(dirty||_savingNow)return; // never overwrite unsaved local changes
   try{
     setSyncBadge('syncing','Syncing…');
     const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+driveFileId+'/content',{headers:{Authorization:'Bearer '+accessToken}});
@@ -3929,6 +4002,13 @@ async function pullRemoteChanges(newModified){
     const raw=await r.arrayBuffer();
     const {mainAB}=unpackContainer(raw);
     const json=await decryptData(mainAB,currentPassword);
+    // Re-check: local edits (e.g. a delete) may have happened while this fetch/decrypt was
+    // in flight. If so, applying this now-stale remote snapshot would silently undo them —
+    // so bail out and let the next auto-sync tick push the local changes instead.
+    if(dirty||_savingNow){
+      setSyncBadge('ok',isOfflineMode?'Offline':'Saved');
+      return;
+    }
     storage=JSON.parse(json);
     normalizeStorage();
     lastKnownRemoteModified=newModified||lastKnownRemoteModified;
@@ -4008,8 +4088,8 @@ async function submitNewDiary(){
 
 function copyRedirectUri(){const u=location.origin+location.pathname;navigator.clipboard.writeText(u).then(()=>toast('📋 Copied!')).catch(()=>toast('Copy: '+u));}
 
-function lockDiary(){
-  if(!confirm('Lock and exit?'))return;
+async function lockDiary(){
+  if(!(await showConfirm('Lock and exit?')))return;
   performLockExit();
 }
 // Full lock/sign-out — shared by the manual "Lock & Exit" action and the
@@ -4216,6 +4296,24 @@ function getGCalCfg(){
   if(!storage.gcalCfg)storage.gcalCfg={enabled:false,hour:9};
   return storage.gcalCfg;
 }
+// Cache the live access token (+expiry) in localStorage so a page reload — or reopening
+// the app later the same hour — can reuse it instead of calling Google again, which is
+// what was causing the "connect with Google" prompt to reappear so often.
+function cacheGcalToken(token,expiresAt){
+  try{localStorage.setItem('sd_gcal_token',JSON.stringify({token,expiresAt}));}catch(e){}
+}
+function loadCachedGcalToken(){
+  try{
+    const raw=localStorage.getItem('sd_gcal_token');
+    if(!raw)return false;
+    const {token,expiresAt}=JSON.parse(raw);
+    if(token&&expiresAt&&Date.now()<expiresAt){
+      gcalAccessToken=token;gcalTokenExpiresAt=expiresAt;
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
 function gcalConnected(){return !!gcalAccessToken && Date.now()<gcalTokenExpiresAt;}
 
 function initGoogleClient(){
@@ -4228,6 +4326,7 @@ function initGoogleClient(){
       if(resp&&resp.access_token){
         gcalAccessToken=resp.access_token;
         gcalTokenExpiresAt=Date.now()+((resp.expires_in||3600)*1000)-60000;
+        cacheGcalToken(gcalAccessToken,gcalTokenExpiresAt);
         localStorage.setItem('sd_google_connected','1');
         // Remember the connection against THIS diary (synced via OneDrive), not just this device/browser,
         // so re-opening this diary — on any device — auto-reconnects without configuring it again.
@@ -4246,6 +4345,9 @@ function initGoogleClient(){
 // Tries a silent (no-popup) token refresh on load, if the user connected before.
 function tryAutoConnectGoogle(attempts){
   attempts=attempts||0;
+  // Already have a token cached from earlier this session/hour — reuse it, no network/popup needed.
+  if(gcalConnected())return;
+  if(loadCachedGcalToken()){refreshGCalBox();return;}
   if(typeof google==='undefined'||!google.accounts||!google.accounts.oauth2){
     if(attempts<10)setTimeout(()=>tryAutoConnectGoogle(attempts+1),300);
     return;
@@ -4271,6 +4373,7 @@ function connectGoogleCalendar(){
 function disconnectGoogleCalendar(){
   gcalAccessToken=null;gcalTokenExpiresAt=0;
   localStorage.removeItem('sd_google_connected');
+  localStorage.removeItem('sd_gcal_token');
   const cfg=getGCalCfg();cfg.connected=false;saveToDrive();
   refreshGCalBox();
   toast('Disconnected — existing calendar events are left as they are');
@@ -4550,8 +4653,8 @@ function startQuickPinSetup(){
   openModal('modal-pin');
   setTimeout(()=>document.getElementById('pin-input').focus(),250);
 }
-function removeQuickPin(){
-  if(!confirm('Disable Quick PIN unlock on this device?'))return;
+async function removeQuickPin(){
+  if(!(await showConfirm('Disable Quick PIN unlock on this device?')))return;
   localStorage.removeItem(quickPinStorageKey());
   toast('🔓 Quick PIN disabled');
   refreshSettingsModal();
@@ -4649,8 +4752,8 @@ async function setupBiometricUnlock(){
     refreshSettingsModal();
   }catch(e){toast('❌ '+(e.message||'Could not set up biometric unlock'));}
 }
-function removeBiometricUnlock(){
-  if(!confirm('Disable biometric unlock on this device?'))return;
+async function removeBiometricUnlock(){
+  if(!(await showConfirm('Disable biometric unlock on this device?')))return;
   localStorage.removeItem(biometricStorageKey());
   toast('🔓 Biometric unlock disabled');
   refreshSettingsModal();
@@ -4676,7 +4779,7 @@ async function requestLockOnly(){
   const hasPin=!!getQuickPinRecord();
   const hasBio=!!getBiometricRecord();
   if(!hasPin&&!hasBio){
-    if(confirm("You'll need a Quick PIN or biometric unlock set up before you can lock the diary — otherwise you couldn't get back in. Set one up now?")){
+    if(await showConfirm("You'll need a Quick PIN or biometric unlock set up before you can lock the diary — otherwise you couldn't get back in. Set one up now?")){
       openSettingsModal();
     }
     return;
@@ -4829,7 +4932,7 @@ function closeMoreMenu(){document.getElementById('more-menu').classList.remove('
 // ── FAB ──
 function fabAction(){
   if(currentPanel==='diary')return;
-  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';document.getElementById('task-sync-cal').checked=true;taskReminderDraft=[];renderTaskReminderChips();initAttachUI('task',[]);openModal('modal-task');return;}
+  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';document.getElementById('task-repeat').value='none';document.getElementById('task-sync-cal').checked=true;taskReminderDraft=[];renderTaskReminderChips();initAttachUI('task',[]);openModal('modal-task');return;}
   if(currentPanel==='lists'){createChecklist();return;}
   if(currentPanel==='expenses'){
     editingExpenseId=null;
@@ -5170,6 +5273,20 @@ function reminderUnitLabel(value,unit){
   const n=names[unit]||unit;
   return `${value} ${n}${value===1?'':'s'} before`;
 }
+// Advances a YYYY-MM-DD date forward by one occurrence of the given repeat interval.
+function computeNextDueDate(dueStr,repeat){
+  if(!dueStr||!repeat||repeat==='none')return null;
+  const d=new Date(dueStr+'T00:00:00');
+  if(repeat==='daily')d.setDate(d.getDate()+1);
+  else if(repeat==='weekly')d.setDate(d.getDate()+7);
+  else if(repeat==='monthly')d.setMonth(d.getMonth()+1);
+  else if(repeat==='yearly')d.setFullYear(d.getFullYear()+1);
+  else return null;
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function repeatLabel(repeat){
+  return {daily:'🔁 Every day',weekly:'🔁 Every week',monthly:'🔁 Every month',yearly:'🔁 Every year'}[repeat]||'';
+}
 function addTaskReminderPreset(value,unit){addTaskReminderEntry(value,unit);}
 function addTaskReminderCustom(){
   const valEl=document.getElementById('task-reminder-custom-value');
@@ -5203,8 +5320,39 @@ function renderTaskReminderChips(){
 }
 
 // ── TASKS ──
+let taskSelectMode=false;
+function toggleTaskSelectMode(){
+  taskSelectMode=!taskSelectMode;
+  document.getElementById('task-select-bar').style.display=taskSelectMode?'flex':'none';
+  document.getElementById('task-select-btn').style.display=taskSelectMode?'none':'';
+  if(!taskSelectMode)document.getElementById('task-select-all').checked=false;
+  renderTasks();
+}
+function toggleTaskSelectAll(checked){
+  document.querySelectorAll('.task-sel-check').forEach(c=>{c.checked=checked;});
+  updateTaskSelectCount();
+}
+function updateTaskSelectCount(){
+  const count=document.querySelectorAll('.task-sel-check:checked').length;
+  document.getElementById('task-select-count').textContent=count+' selected';
+}
+async function deleteSelectedTasks(){
+  const ids=[...document.querySelectorAll('.task-sel-check:checked')].map(c=>c.dataset.tid);
+  if(!ids.length)return toast('Select at least one task');
+  if(!(await showConfirm(`Delete ${ids.length} task${ids.length>1?'s':''}? This cannot be undone.`)))return;
+  storage.todos=(storage.todos||[]).filter(t=>!ids.includes(t.id));
+  dirty=true;
+  taskSelectMode=false;
+  document.getElementById('task-select-bar').style.display='none';
+  document.getElementById('task-select-btn').style.display='';
+  document.getElementById('task-select-all').checked=false;
+  renderTasks();saveToDrive();
+  toast(`🗑 Deleted ${ids.length} task${ids.length>1?'s':''}`);
+}
 function renderTasks(){
   const tasks=(storage.todos||[]);
+  // Ensure all tasks have an id (imported tasks might lack one)
+  tasks.forEach(t=>{if(!t.id)t.id=uuid();});
   const today=todayStr();
   const stats={total:tasks.length,done:tasks.filter(t=>t.done).length,overdue:tasks.filter(t=>!t.done&&t.due&&t.due<today).length};
   document.getElementById('task-stats').innerHTML=`<div class="stat-card"><div class="stat-num">${stats.total}</div><div class="stat-label">Total</div></div><div class="stat-card"><div class="stat-num">${stats.done}</div><div class="stat-label">Done</div></div><div class="stat-card" style="color:var(--danger)"><div class="stat-num">${stats.overdue}</div><div class="stat-label">Overdue</div></div>`;
@@ -5217,25 +5365,44 @@ function renderTasks(){
   const pMap={high:'🔴',med:'🟡',low:'🟢',normal:''};
   document.getElementById('task-list').innerHTML=list.length?list.map(t=>`
     <div class="card" id="task-${t.id}" style="display:flex;align-items:flex-start;gap:12px;${t.done?'opacity:0.55':''}">
-      <input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')" style="width:20px;height:20px;margin-top:2px;cursor:pointer;accent-color:var(--primary)"/>
+      ${taskSelectMode?`<input type="checkbox" class="task-sel-check" data-tid="${t.id}" onchange="updateTaskSelectCount()" style="width:20px;height:20px;margin-top:2px;cursor:pointer;accent-color:var(--danger)"/>`:`<input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')" style="width:20px;height:20px;margin-top:2px;cursor:pointer;accent-color:var(--primary)"/>`}
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:15px;${t.done?'text-decoration:line-through':''}">${pMap[t.priority]||''} ${escH(t.text)}</div>
         ${t.due?`<div style="font-size:11px;color:${t.due<today&&!t.done?'var(--danger)':'var(--text-muted)'};font-family:monospace">📅 ${fmtDate(t.due)}</div>`:''}
         ${t.reminders&&t.reminders.length?`<div style="font-size:11px;color:#c77700;margin-top:2px">🔔 ${t.reminders.map(r=>reminderUnitLabel(r.value,r.unit)).join(', ')}</div>`:''}
+        ${t.repeat&&t.repeat!=='none'?`<div style="font-size:11px;color:var(--accent);margin-top:2px">${repeatLabel(t.repeat)}</div>`:''}
         ${t.tags&&t.tags.length?`<div style="font-size:11px;color:var(--primary);margin-top:2px">${t.tags.map(g=>`#${g}`).join(' ')}</div>`:''}
         ${t.attachments&&t.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="viewSavedAttachments(storage.todos.find(x=>x.id==='${t.id}').attachments)">📎 ${t.attachments.length} attached</div>`:''}
       </div>
-      <div style="display:flex;gap:4px">
+      ${taskSelectMode?'':`<div style="display:flex;gap:4px">
         <button class="icon-btn edit" onclick="editTask('${t.id}')">✏️</button>
         <button class="icon-btn" onclick="deleteTask('${t.id}')">🗑</button>
-      </div>
+      </div>`}
     </div>`).join(''):`<div class="empty"><div class="empty-icon">✅</div><p>No tasks here</p></div>`;
   const nd=document.getElementById('nd-tasks');if(nd)nd.classList.toggle('show',stats.overdue>0);
 }
 function setTaskFilter(f,el){taskFilter=f;document.querySelectorAll('#panel-tasks .pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderTasks();}
-function toggleTask(id){const t=storage.todos.find(x=>x.id===id);if(t){t.done=!t.done;vibrate(t.done?[10,30,10]:8);renderTasks();if(currentPanel==='diary')renderDueTasksWidget();saveToDrive();}}
-function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');document.getElementById('task-sync-cal').checked=(t.syncCal!==false);taskReminderDraft=(t.reminders||[]).map(r=>({id:r.id||uuid(),value:r.value,unit:r.unit}));renderTaskReminderChips();initAttachUI('task',t.attachments);openModal('modal-task');}
-function deleteTask(id){if(!confirm('Delete task?'))return;storage.todos=storage.todos.filter(x=>x.id!==id);renderTasks();saveToDrive();}
+function toggleTask(id){
+  const t=storage.todos.find(x=>x.id===id);
+  if(!t)return;
+  t.done=!t.done;
+  vibrate(t.done?[10,30,10]:8);
+  if(t.done&&t.repeat&&t.repeat!=='none'&&t.due){
+    const nextDue=computeNextDueDate(t.due,t.repeat);
+    if(nextDue){
+      storage.todos.push({
+        id:uuid(),text:t.text,due:nextDue,priority:t.priority,tags:(t.tags||[]).slice(),
+        done:false,created:todayStr(),attachments:[],
+        reminders:(t.reminders||[]).map(r=>({id:uuid(),value:r.value,unit:r.unit})),
+        syncCal:t.syncCal,repeat:t.repeat
+      });
+      toast('🔁 Next occurrence created for '+fmtDate(nextDue));
+    }
+  }
+  renderTasks();if(currentPanel==='diary')renderDueTasksWidget();renderCalHighlights();saveToDrive();
+}
+function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');document.getElementById('task-repeat').value=t.repeat||'none';document.getElementById('task-sync-cal').checked=(t.syncCal!==false);taskReminderDraft=(t.reminders||[]).map(r=>({id:r.id||uuid(),value:r.value,unit:r.unit}));renderTaskReminderChips();initAttachUI('task',t.attachments);openModal('modal-task');}
+async function deleteTask(id){if(!(await showConfirm('Delete task?')))return;storage.todos=storage.todos.filter(x=>x.id!==id);dirty=true;renderTasks();saveToDrive();}
 function submitTask(){
   const text=document.getElementById('task-desc').value.trim();if(!text)return toast('Enter task description');
   const due=document.getElementById('task-due').value,priority=document.getElementById('task-priority').value;
@@ -5243,8 +5410,10 @@ function submitTask(){
   const attachments=getAttachStage('task');
   const reminders=taskReminderDraft.map(r=>({id:r.id,value:r.value,unit:r.unit}));
   const syncCal=document.getElementById('task-sync-cal').checked;
-  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;t.attachments=attachments;t.reminders=reminders;t.syncCal=syncCal;}}
-  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr(),attachments,reminders,syncCal});}
+  const repeat=document.getElementById('task-repeat')?document.getElementById('task-repeat').value:'none';
+  if(repeat!=='none'&&!due){toast('Set a due date to use Repeat');return;}
+  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;t.attachments=attachments;t.reminders=reminders;t.syncCal=syncCal;t.repeat=repeat;}}
+  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr(),attachments,reminders,syncCal,repeat});}
   closeModal('modal-task');renderTasks();renderCalHighlights();saveToDrive();
   scheduleGCalSync(); // pick up a newly ticked/unticked sync flag right away, not just on the next unrelated save
 }
@@ -5266,11 +5435,12 @@ function updateCLSelectCount(){
   const count=document.querySelectorAll('.cl-sel-check:checked').length;
   document.getElementById('cl-select-count').textContent=count+' selected';
 }
-function deleteSelectedChecklists(){
+async function deleteSelectedChecklists(){
   const ids=[...document.querySelectorAll('.cl-sel-check:checked')].map(c=>c.dataset.clid);
   if(!ids.length)return toast('Select at least one checklist');
-  if(!confirm(`Delete ${ids.length} checklist${ids.length>1?'s':''}? This cannot be undone.`))return;
+  if(!(await showConfirm(`Delete ${ids.length} checklist${ids.length>1?'s':''}? This cannot be undone.`)))return;
   storage.lists=(storage.lists||[]).filter(l=>!ids.includes(l.id));
+  dirty=true;
   clSelectMode=false;
   document.getElementById('cl-select-bar').style.display='none';
   document.getElementById('cl-select-btn').style.display='';
@@ -5367,7 +5537,7 @@ function submitChecklistModal(){
   closeModal('modal-checklist');
   renderChecklists();saveToDrive();
 }
-function deleteChecklist(id){if(!confirm('Delete checklist?'))return;storage.lists=storage.lists.filter(l=>l.id!==id);renderChecklists();saveToDrive();}
+async function deleteChecklist(id){if(!(await showConfirm('Delete checklist?')))return;storage.lists=storage.lists.filter(l=>l.id!==id);dirty=true;renderChecklists();saveToDrive();}
 function addCLItem(lid){const inp=document.getElementById('cli-'+lid);if(!inp||!inp.value.trim())return;const l=storage.lists.find(x=>x.id===lid);if(l){l.items.push({id:uuid(),text:inp.value.trim(),done:false});inp.value='';}renderChecklists();saveToDrive();}
 function toggleCLItem(lid,iid){const l=storage.lists.find(x=>x.id===lid);if(!l)return;const item=l.items.find(x=>x.id===iid);if(item)item.done=!item.done;renderChecklists();saveToDrive();}
 function deleteCLItem(lid,iid){const l=storage.lists.find(x=>x.id===lid);if(!l)return;l.items=l.items.filter(x=>x.id!==iid);renderChecklists();saveToDrive();}
@@ -5391,7 +5561,17 @@ function switchExpTab(tab){
 }
 
 function renderExpenses(){
-  const from=document.getElementById('exp-from')?.value||'',to=document.getElementById('exp-to')?.value||'';
+  const fromEl=document.getElementById('exp-from'),toEl=document.getElementById('exp-to');
+  // Default to the current month when no period has been chosen yet, so the summary
+  // cards below always reflect a selected period rather than an all-time total.
+  if(fromEl&&toEl&&!fromEl.value&&!toEl.value){
+    const now=new Date();
+    const y=now.getFullYear(),m=now.getMonth();
+    const first=new Date(y,m,1),last=new Date(y,m+1,0);
+    fromEl.value=first.toISOString().slice(0,10);
+    toEl.value=last.toISOString().slice(0,10);
+  }
+  const from=fromEl?.value||'',to=toEl?.value||'';
   const catF=(document.getElementById('exp-cat-filter')?.value||'').toLowerCase().trim();
   let exps=storage.expenses||[];
   if(from)exps=exps.filter(e=>e.date>=from);
@@ -5478,10 +5658,10 @@ function exportExpensesJSON(){
 // negative-amount source row to "income" (green). This corrects existing data — it does not touch
 // entries you added by hand — by asking, for each currently-positive (income-flagged) entry, whether
 // to flip it to an expense. Safe to run more than once.
-function fixImportedExpenseSigns(){
+async function fixImportedExpenseSigns(){
   const suspects=(storage.expenses||[]).filter(e=>parseFloat(e.amount)>0);
   if(!suspects.length)return toast('Nothing to fix — no entries are currently marked as income');
-  if(!confirm(`${suspects.length} entr${suspects.length===1?'y':'ies'} currently show as Income.\n\nTap OK to convert ALL of them to Expense (use this if they came from a JSON import and aren't real income like salary/refunds).\nTap Cancel to leave them as-is.`))return;
+  if(!(await showConfirm(`${suspects.length} entr${suspects.length===1?'y':'ies'} currently show as Income.\n\nTap OK to convert ALL of them to Expense (use this if they came from a JSON import and aren't real income like salary/refunds).\nTap Cancel to leave them as-is.`)))return;
   suspects.forEach(e=>{e.amount=-Math.abs(parseFloat(e.amount)||0);});
   renderExpenses();
   if(currentExpTab==='report')renderReport();
@@ -5707,7 +5887,7 @@ function renderReport(){
         <td style="padding:6px 4px">${escH(e.category||'—')}</td>
         <td style="padding:6px 4px">${escH(e.account||'—')}</td>
         <td style="padding:6px 4px">${escH(e.mode||'—')}</td>
-        <td style="padding:6px 4px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(e.note||'')}</td>
+        <td style="padding:6px 4px;max-width:220px;white-space:normal;word-break:break-word;color:var(--text-mid)">${escH(e.note||'—')}</td>
         <td style="text-align:right;padding:6px 4px;font-family:monospace;font-weight:700;color:${amt>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(amt).toFixed(0)}</td>
       </tr>`;}).join('')}</tbody>
     </table>`:'<div style="color:var(--text-muted);font-size:13px">No transactions in this range</div>';
@@ -5861,7 +6041,7 @@ function editExpense(id){
   initAttachUI('expense',e.attachments);
   openModal('modal-expense');
 }
-function deleteExpense(id){if(!confirm('Delete?'))return;storage.expenses=storage.expenses.filter(x=>x.id!==id);renderExpenses();if(currentExpTab==='report')renderReport();saveToDrive();}
+async function deleteExpense(id){if(!(await showConfirm('Delete?')))return;storage.expenses=storage.expenses.filter(x=>x.id!==id);renderExpenses();if(currentExpTab==='report')renderReport();saveToDrive();}
 function submitExpense(){
   const date=document.getElementById('exp-date').value;
   const cat=document.getElementById('exp-category').value.trim();
@@ -6057,7 +6237,7 @@ function occasionsOnDate(ds){
   return out;
 }
 function editContact(id){const c=storage.contacts.find(x=>x.id===id);if(!c)return;editingContactId=id;document.getElementById('contact-name').value=c.name;document.getElementById('contact-phone').value=c.phone||'';document.getElementById('contact-email').value=c.email||'';document.getElementById('contact-relation').value=c.relation||'';document.getElementById('contact-alias').value=c.alias||'';document.getElementById('contact-birthday').value=c.birthday||'';document.getElementById('contact-anniversary').value=c.anniversary||'';document.getElementById('contact-company').value=c.company||'';document.getElementById('contact-whatsapp').value=c.whatsapp||'';document.getElementById('contact-website').value=c.website||'';document.getElementById('contact-address').value=c.address||'';document.getElementById('contact-remark').value=c.note||'';initAttachUI('contact',c.attachments);openModal('modal-contact');}
-function deleteContact(id){if(!confirm('Delete contact?'))return;storage.contacts=storage.contacts.filter(x=>x.id!==id);renderContacts();saveToDrive();}
+async function deleteContact(id){if(!(await showConfirm('Delete contact?')))return;storage.contacts=storage.contacts.filter(x=>x.id!==id);renderContacts();saveToDrive();}
 function submitContact(){
   const name=document.getElementById('contact-name').value.trim();if(!name)return toast('Enter name');
   const phone=document.getElementById('contact-phone').value.trim(),email=document.getElementById('contact-email').value.trim(),note=document.getElementById('contact-remark').value.trim();
@@ -6213,7 +6393,7 @@ function renderNotes(){
     </div>`).join(''):`<div class="empty" style="grid-column:1/-1"><div class="empty-icon">📌</div><p>No sticky notes</p></div>`;
 }
 function editNote(id){const n=storage.sticky_notes.find(x=>x.id===id);if(!n)return;initNoteColorPicker();editingNoteId=id;document.getElementById('note-editor').innerHTML=n.text;document.getElementById('note-tags').value=n.tags?n.tags.join(', '):'';selectedNoteColor=n.color||'#fff9c4';document.querySelectorAll('.color-swatch').forEach(s=>s.classList.toggle('sel',s.dataset.color===selectedNoteColor));initAttachUI('note',n.attachments);openModal('modal-note');}
-function deleteNote(id){if(!confirm('Delete note?'))return;storage.sticky_notes=storage.sticky_notes.filter(x=>x.id!==id);renderNotes();saveToDrive();}
+async function deleteNote(id){if(!(await showConfirm('Delete note?')))return;storage.sticky_notes=storage.sticky_notes.filter(x=>x.id!==id);renderNotes();saveToDrive();}
 function pickNoteColor(el,color){selectedNoteColor=color;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('sel'));el.classList.add('sel');}
 function submitNote(){
   const text=document.getElementById('note-editor').innerHTML.trim();if(!text||text==='<br>')return toast('Enter note text');
@@ -6395,8 +6575,8 @@ async function submitNbSettings(){
   renderNotebooks();saveToDrive();
   toast('✅ Settings saved');
 }
-function deleteNotebookFromSettings(){
-  if(!confirm('Delete this notebook and ALL its pages? This cannot be undone.'))return;
+async function deleteNotebookFromSettings(){
+  if(!(await showConfirm('Delete this notebook and ALL its pages? This cannot be undone.')))return;
   delete storage.notebooks[_nbSettingsId];
   _nbUnlockedIds.delete(_nbSettingsId);
   closeModal('modal-nb-settings');
@@ -6464,8 +6644,8 @@ function editNbPage(nbId,pageId){
   openModal('modal-nb-page');
   setTimeout(()=>document.getElementById('nb-page-name').focus(),100);
 }
-function deleteNbPage(nbId,pageId){
-  if(!confirm('Delete this page?'))return;
+async function deleteNbPage(nbId,pageId){
+  if(!(await showConfirm('Delete this page?')))return;
   delete storage.notebooks[nbId].pages[pageId];
   renderNotebooks();saveToDrive();
 }
@@ -6608,7 +6788,7 @@ function nbFindKeydown(e){
   if(e.key==='Enter'){e.preventDefault();nbFindNav(e.shiftKey?-1:1);}
   else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeNbFind();}
 }
-function deleteNotebook(id){if(!confirm('Delete notebook?'))return;delete storage.notebooks[id];_nbUnlockedIds.delete(id);renderNotebooks();saveToDrive();}
+async function deleteNotebook(id){if(!(await showConfirm('Delete notebook?')))return;delete storage.notebooks[id];_nbUnlockedIds.delete(id);renderNotebooks();saveToDrive();}
 
 // ── PROJECTS (enhanced) ──
 let _projFilter = 'all';
@@ -7024,8 +7204,8 @@ function selectProjColor(color, el){
   el.classList.add('selected');
 }
 
-function deleteProject(id){
-  if(!confirm('Delete this project and all its tasks?')) return;
+async function deleteProject(id){
+  if(!(await showConfirm('Delete this project and all its tasks?'))) return;
   storage.projects = storage.projects.filter(x=>x.id!==id);
   renderProjects();
   renderProjStats();
