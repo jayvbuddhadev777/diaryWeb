@@ -1448,6 +1448,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             <button class="btn btn-secondary btn-sm" onclick="exportExpensesJSON()">⬇ Export JSON</button>
             <button class="btn btn-secondary btn-sm" onclick="exportExpenseCSV()">⬇ Export CSV</button>
             <button class="btn btn-secondary btn-sm" onclick="fixImportedExpenseSigns()" title="Corrects entries already sitting here from an import done before the sign fix">🛠 Fix income/expense</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteAllExpenses()" title="Delete ALL expenses permanently">🗑 Delete All</button>
           </div>
           <div id="exp-list" style="display:flex;flex-direction:column;gap:8px"></div>
         </div>
@@ -3945,30 +3946,41 @@ async function simpleUploadToDrive(name,ab,existingId){
 // Resumable upload for files > 4MB — uses OneDrive upload sessions with chunked PUT
 async function uploadLargeFileToDrive(name,ab,existingId){
   // 1. Create an upload session
+  // For existing files, use path-based URL to avoid ETag conflicts
   const sessionUrl=existingId
     ?`https://graph.microsoft.com/v1.0/me/drive/items/${existingId}/createUploadSession`
     :`https://graph.microsoft.com/v1.0/me/drive/special/approot:/${name}.enc:/createUploadSession`;
-  const sRes=await fetch(sessionUrl,{
-    method:'POST',
-    headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
-    body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace'}})
-  });
-  if(!sRes.ok){
-    const errText=await sRes.text().catch(()=>'');
-    throw new Error('Upload session failed: '+sRes.status+' '+sRes.statusText+(errText?' — '+errText.slice(0,200):''));
+  
+  let uploadUrl;
+  // Try to create session, retry once on conflict
+  for(let attempt=0;attempt<2;attempt++){
+    const sRes=await fetch(sessionUrl,{
+      method:'POST',
+      headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
+      body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace','name':name+'.enc'}})
+    });
+    if(sRes.status===409){
+      // ETag conflict — wait briefly and retry
+      await new Promise(r=>setTimeout(r,1000));
+      continue;
+    }
+    if(!sRes.ok){
+      const errText=await sRes.text().catch(()=>'');
+      throw new Error('Upload session failed: '+sRes.status+' '+sRes.statusText+(errText?' — '+errText.slice(0,200):''));
+    }
+    const session=await sRes.json();
+    uploadUrl=session.uploadUrl;
+    break;
   }
-  const session=await sRes.json();
-  const uploadUrl=session.uploadUrl;
-  // 2. Upload in chunks (smaller 3.75MB chunks for browser compatibility)
-  const CHUNK=3750000; // ~3.75MB (must be multiple of 320KB per MS docs, 3750000/327680≈11.4 — round down)
-  const CHUNK_ALIGNED=Math.floor(CHUNK/327680)*327680; // align to 320KB boundary = 3604480
-  const chunkSize=CHUNK_ALIGNED||3276800; // fallback 3.2MB
+  if(!uploadUrl)throw new Error('Could not create upload session after retries (409 conflict)');
+  
+  // 2. Upload in chunks aligned to 320KB boundary (~3.4MB each)
+  const chunkSize=Math.floor(3500000/327680)*327680; // = 3276800 (10 × 320KB = 3.2MB)
   const total=ab.byteLength;
   let offset=0, lastRes=null;
   while(offset<total){
     const end=Math.min(offset+chunkSize,total);
     const chunkBuf=ab.slice(offset,end);
-    const chunkLen=end-offset;
     const r=await fetch(uploadUrl,{
       method:'PUT',
       headers:{
@@ -3978,11 +3990,56 @@ async function uploadLargeFileToDrive(name,ab,existingId){
     });
     if(r.status===202){offset=end;continue;} // more chunks expected
     if(r.status===200||r.status===201){lastRes=await r.json();break;} // upload complete
-    // Error — try to get details
+    // 409 during chunk upload — session is stale, need to restart
+    if(r.status===409){
+      // Cancel this session and fall back to deleting + re-uploading
+      await fetch(uploadUrl,{method:'DELETE'}).catch(()=>{});
+      // Retry entire upload by deleting and re-uploading as new
+      if(existingId){
+        // Delete the existing file and upload fresh
+        await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+existingId,{
+          method:'DELETE',headers:{Authorization:'Bearer '+accessToken}
+        }).catch(()=>{});
+        // Upload as new file via simple or session
+        return await uploadLargeFileAsNew(name,ab);
+      }
+      throw new Error('Upload conflict (409) — please try saving again');
+    }
+    // Other error
     const errBody=await r.text().catch(()=>'');
     throw new Error('Chunk upload failed ('+r.status+'): '+errBody.slice(0,150));
   }
   if(!lastRes)throw new Error('Upload completed without final response');
+  return {id:lastRes.id,lastModifiedDateTime:lastRes.lastModifiedDateTime||null};
+}
+
+// Fallback: upload a large file as a brand new file (after delete)
+async function uploadLargeFileAsNew(name,ab){
+  const sessionUrl=`https://graph.microsoft.com/v1.0/me/drive/special/approot:/${name}.enc:/createUploadSession`;
+  const sRes=await fetch(sessionUrl,{
+    method:'POST',
+    headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
+    body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace','name':name+'.enc'}})
+  });
+  if(!sRes.ok)throw new Error('Re-upload session failed: '+sRes.status);
+  const session=await sRes.json();
+  const uploadUrl=session.uploadUrl;
+  const chunkSize=Math.floor(3500000/327680)*327680;
+  const total=ab.byteLength;
+  let offset=0, lastRes=null;
+  while(offset<total){
+    const end=Math.min(offset+chunkSize,total);
+    const r=await fetch(uploadUrl,{
+      method:'PUT',
+      headers:{'Content-Range':`bytes ${offset}-${end-1}/${total}`},
+      body:ab.slice(offset,end)
+    });
+    if(r.status===202){offset=end;continue;}
+    if(r.status===200||r.status===201){lastRes=await r.json();break;}
+    const errBody=await r.text().catch(()=>'');
+    throw new Error('Re-upload chunk failed ('+r.status+'): '+errBody.slice(0,100));
+  }
+  if(!lastRes)throw new Error('Re-upload completed without response');
   return {id:lastRes.id,lastModifiedDateTime:lastRes.lastModifiedDateTime||null};
 }
 // Lightweight metadata check — used to detect if someone else (another device/session)
@@ -3993,6 +4050,13 @@ async function getRemoteItemMeta(id){
 
 async function saveToDrive(){
   if(!storage||!currentPassword)return;
+  // Prevent concurrent saves which cause ETag conflicts
+  if(_savingNow){
+    // Queue a retry after current save finishes
+    clearTimeout(window._saveRetryTimer);
+    window._saveRetryTimer=setTimeout(()=>saveToDrive(),2000);
+    return;
+  }
   _savingNow=true;
   if(isOfflineMode){
     // Offline mode: re-encrypt to in-memory blob; user downloads to persist
@@ -5726,6 +5790,25 @@ function exportExpenseCSV(){
   const a=document.createElement('a');a.href=url;a.download=(currentDiaryName||'diary')+'_expenses.csv';a.click();URL.revokeObjectURL(url);toast('⬇ CSV exported');
 }
 
+function deleteAllExpenses(){
+  const count=(storage.expenses||[]).length;
+  if(!count)return toast('No expenses to delete');
+  // Confirmation 1
+  if(!confirm(`⚠️ DELETE ALL ${count} EXPENSES?\n\nThis will permanently remove every single expense entry. This CANNOT be undone.\n\nAre you sure?`))return;
+  // Confirmation 2
+  if(!confirm(`🚨 SECOND CONFIRMATION:\n\nYou are about to delete ${count} expense${count>1?'s':''}.\n\nHave you exported a backup? Tap OK only if you are absolutely certain.`))return;
+  // Confirmation 3 — type-to-confirm
+  const typed=prompt(`🔴 FINAL CONFIRMATION:\n\nType "DELETE" (all caps) to permanently erase all ${count} expenses:`);
+  if(typed!=='DELETE'){toast('❌ Cancelled — you did not type DELETE');return;}
+  // Proceed
+  storage.expenses=[];
+  dirty=true;
+  renderExpenses();
+  if(currentExpTab==='report')renderReport();
+  saveToDrive();
+  toast(`🗑 All ${count} expenses deleted`);
+}
+
 // ── EXPENSE JSON IMPORT / EXPORT ──
 // Export format matches the "secure_diary_expenses" schema so files can round-trip
 // between diaries (and be re-imported here) without any manual field mapping.
@@ -5749,7 +5832,7 @@ function exportExpensesJSON(){
       // Exported file convention (matches most expense-tracker exports): positive = expense, negative = income/refund.
       amount:-(parseFloat(e.amount)||0),
       remark:e.note||'',
-      notes:'',
+      notes:e.notes||'',
       mode:e.mode||'',
       account:e.account||''
     }))
@@ -5814,13 +5897,14 @@ function handleExpenseImportJSON(inputEl){
         const account=String(row.account||'').trim();
         const mode=String(row.mode||'').trim();
         const note=String(row.remark!=null&&row.remark!==''?row.remark:(row.note||'')).trim();
+        const notes=String(row.notes||row.description||row.details||'').trim();
 
         // Auto-create category / account / mode in the managed lists if not already present.
         if(category&&!sl.cats.includes(category)){sl.cats.push(category);catsCreated++;}
         if(account&&!sl.accs.includes(account)){sl.accs.push(account);accsCreated++;}
         if(mode&&!sl.modes.includes(mode)){sl.modes.push(mode);modesCreated++;}
 
-        const entry={id:uuid(),date,category,amount:amt,mode,account,note,attachments:[]};
+        const entry={id:uuid(),date,category,amount:amt,mode,account,note,notes,attachments:[]};
         const key=existingKey(entry);
         if(seen.has(key)){skipped++;return;}
         seen.add(key);
