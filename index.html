@@ -712,6 +712,7 @@ mark.nb-find-hl.nb-find-hl-active { background:#ff9800; color:#1a1f36; box-shado
 .attach-thumb .attach-pdf-ico { font-size:24px; }
 .attach-thumb .attach-name { position:absolute; bottom:0; left:0; right:0; background:rgba(0,0,0,0.55); color:#fff; font-size:8px; padding:1px 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .attach-thumb .attach-rm { position:absolute; top:-6px; right:-6px; background:var(--danger); color:#fff; border-radius:50%; width:19px; height:19px; font-size:12px; line-height:18px; text-align:center; cursor:pointer; border:2px solid var(--surface); font-weight:700; }
+.attach-thumb .attach-dl { position:absolute; top:-6px; left:-6px; background:var(--primary); color:#fff; border-radius:50%; width:19px; height:19px; font-size:11px; line-height:18px; text-align:center; cursor:pointer; border:2px solid var(--surface); font-weight:700; }
 .attach-btns { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
 .attach-btn { background:var(--surface2); border:1.5px dashed var(--border); border-radius:9px; padding:8px 12px; font-size:12px; font-weight:700; cursor:pointer; color:var(--text-muted); font-family:'DM Sans',sans-serif; }
 .attach-btn:active { opacity:0.7; }
@@ -2014,6 +2015,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="form-group">
       <label class="form-label">Remark</label>
       <input type="text" class="form-input" id="exp-remark" placeholder="Short remark"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">📝 Notes <span style="font-weight:400;color:var(--text-muted)">(detailed description, context…)</span></label>
+      <textarea class="form-input" id="exp-notes" placeholder="Add more details about this expense…" rows="3" style="min-height:70px;resize:vertical"></textarea>
     </div>
     <div class="form-group">
       <label class="form-label">📎 Attachments <span style="font-weight:400;color:var(--text-muted)">(receipts, bills…)</span></label>
@@ -3498,8 +3503,14 @@ function renderAttachUI(key){
     <div class="attach-thumb" onclick="viewAttachment('${key}','${a.id}')" title="${escH(a.name)}">
       ${a.mime==='application/pdf'?'<span class="attach-pdf-ico">📄</span>':`<img src="${a.dataUrl}"/>`}
       <span class="attach-name">${escH(a.name)}</span>
+      <span class="attach-dl" onclick="event.stopPropagation();downloadAttachById('${key}','${a.id}')" title="Download">⬇</span>
       <span class="attach-rm" onclick="event.stopPropagation();removeAttach('${key}','${a.id}')">✕</span>
     </div>`).join('');
+}
+
+function downloadAttachById(key,id){
+  const a=(attachStage[key]||[]).find(x=>x.id===id);
+  if(a)downloadAttachment(a);
 }
 
 function fileToDataUrl(file){
@@ -3516,16 +3527,20 @@ function downscaleImage(dataUrl, maxDim, quality){
   maxDim=maxDim||1200; quality=quality||0.75;
   return new Promise((resolve)=>{
     const img=new Image();
+    const timeout=setTimeout(()=>{resolve(dataUrl);},8000); // 8s timeout fallback
     img.onload=()=>{
-      let w=img.width,h=img.height;
-      if(w<=maxDim&&h<=maxDim&&dataUrl.length<500000){resolve(dataUrl);return;}
-      const scale=Math.min(maxDim/w,maxDim/h,1);
-      const cw=Math.round(w*scale),ch=Math.round(h*scale);
-      const canvas=document.createElement('canvas');canvas.width=cw;canvas.height=ch;
-      canvas.getContext('2d').drawImage(img,0,0,cw,ch);
-      resolve(canvas.toDataURL('image/jpeg',quality));
+      clearTimeout(timeout);
+      try{
+        let w=img.width,h=img.height;
+        if(w<=maxDim&&h<=maxDim&&dataUrl.length<500000){resolve(dataUrl);return;}
+        const scale=Math.min(maxDim/w,maxDim/h,1);
+        const cw=Math.round(w*scale),ch=Math.round(h*scale);
+        const canvas=document.createElement('canvas');canvas.width=cw;canvas.height=ch;
+        canvas.getContext('2d').drawImage(img,0,0,cw,ch);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      }catch(e){resolve(dataUrl);}
     };
-    img.onerror=()=>resolve(dataUrl);
+    img.onerror=()=>{clearTimeout(timeout);resolve(dataUrl);};
     img.src=dataUrl;
   });
 }
@@ -3533,19 +3548,62 @@ function downscaleImage(dataUrl, maxDim, quality){
 async function handleAttachFiles(key, inputEl, kind){
   const files=Array.from(inputEl.files||[]);
   inputEl.value='';
+  let added=0;
   for(const f of files){
     if(f.size>MAX_ATTACH_BYTES){toast('⚠️ '+f.name+' is too large (max 8MB)');continue;}
     try{
-      let dataUrl=await fileToDataUrl(f);
-      if(kind==='image') dataUrl=await downscaleImage(dataUrl);
+      let dataUrl;
+      // For images, compress before converting to avoid memory issues with large photos
+      if(kind==='image'){
+        dataUrl=await compressImageFile(f);
+      } else {
+        dataUrl=await fileToDataUrl(f);
+      }
+      if(!dataUrl){toast('❌ Could not read '+f.name);continue;}
       (attachStage[key]=attachStage[key]||[]).push({
         id:uuid(), name:f.name, mime:kind==='pdf'?'application/pdf':'image/jpeg',
         dataUrl, addedAt:new Date().toISOString()
       });
-    }catch(e){console.error(e);toast('❌ Could not attach '+f.name);}
+      added++;
+    }catch(e){
+      console.error('Attach error:',e);
+      toast('❌ Failed: '+f.name+' — try a smaller file');
+    }
   }
   renderAttachUI(key);
+  if(added)toast('📎 '+added+' file'+(added>1?'s':'')+' attached');
   if(key==='nbpage')markNbDirty();
+  if(key==='diary')markDirty();
+}
+
+// Compress image file directly using createImageBitmap (avoids data URL round-trip for large photos)
+async function compressImageFile(file){
+  try{
+    // Try modern approach: createImageBitmap handles very large images better than Image()
+    if(window.createImageBitmap){
+      const bitmap=await createImageBitmap(file);
+      let w=bitmap.width,h=bitmap.height;
+      const maxDim=1200;
+      if(w>maxDim||h>maxDim){
+        const scale=Math.min(maxDim/w,maxDim/h);
+        w=Math.round(w*scale);h=Math.round(h*scale);
+      }
+      const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(bitmap,0,0,w,h);
+      bitmap.close();
+      const blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',0.75));
+      if(!blob)throw new Error('Canvas toBlob failed');
+      return await fileToDataUrl(blob);
+    }
+  }catch(e){console.warn('createImageBitmap path failed, falling back:',e);}
+  // Fallback: read file → downscale via Image element
+  try{
+    const dataUrl=await fileToDataUrl(file);
+    return await downscaleImage(dataUrl);
+  }catch(e){
+    console.error('Image compression fallback failed:',e);
+    return null;
+  }
 }
 
 async function captureScreenshot(key){
@@ -3585,6 +3643,16 @@ function removeAttach(key,id){
   if(key==='nbpage')markNbDirty();
 }
 
+function downloadAttachment(a){
+  if(!a||!a.dataUrl)return;
+  const link=document.createElement('a');
+  link.href=a.dataUrl;
+  link.download=a.name||'attachment';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 function viewAttachment(key,id){
   const a=(attachStage[key]||[]).find(x=>x.id===id); if(!a) return;
   const w=window.open('about:blank');
@@ -3595,6 +3663,12 @@ function viewAttachment(key,id){
   } else {
     w.document.write(`<title>${safeName}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${a.dataUrl}" style="max-width:100%;max-height:100vh"/></body>`);
   }
+  // Inject download link after write
+  const dl=w.document.createElement('a');
+  dl.href=a.dataUrl;dl.download=a.name||'attachment';
+  dl.style.cssText='position:fixed;top:12px;right:12px;z-index:999;background:#1a3a6b;color:#fff;border:none;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.3);text-decoration:none';
+  dl.textContent='⬇ Download';
+  w.document.body.appendChild(dl);
 }
 
 // Small attachment badge shown in list rows, e.g. renderAttachBadge(item.attachments)
@@ -3607,11 +3681,16 @@ function viewSavedAttachments(list){
   if(!list||!list.length){toast('No attachments');return;}
   const w=window.open('about:blank');
   if(!w){toast('⚠️ Allow popups to view attachments');return;}
-  const body=list.map(a=>a.mime==='application/pdf'
-    ? `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:6px">📄 ${escH(a.name)}</div><iframe src="${a.dataUrl}" style="width:100%;height:80vh;border:1px solid #333;border-radius:6px"></iframe></div>`
-    : `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:6px">🖼️ ${escH(a.name)}</div><img src="${a.dataUrl}" style="max-width:100%;border-radius:6px"/></div>`
-  ).join('');
-  w.document.write(`<title>Attachments</title><body style="margin:0;padding:18px;background:#111">${body}</body>`);
+  const body=list.map((a,i)=>{
+    const safeName=escH(a.name||'attachment-'+(i+1));
+    const dlBtnHtml=`<a href="${a.dataUrl}" download="${safeName}" style="display:inline-block;margin-left:10px;background:#1a3a6b;color:#fff;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;font-family:sans-serif">⬇ Download</a>`;
+    if(a.mime==='application/pdf'){
+      return `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:6px">📄 ${safeName}${dlBtnHtml}</div><iframe src="${a.dataUrl}" style="width:100%;height:80vh;border:1px solid #333;border-radius:6px"></iframe></div>`;
+    }
+    return `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:6px">🖼️ ${safeName}${dlBtnHtml}</div><img src="${a.dataUrl}" style="max-width:100%;border-radius:6px"/></div>`;
+  }).join('');
+  const dlAllBtn=list.length>1?`<div style="text-align:center;margin-bottom:18px"><button onclick="document.querySelectorAll('a[download]').forEach(a=>a.click())" style="background:#00897b;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:sans-serif">⬇ Download All (${list.length})</button></div>`:'';
+  w.document.write(`<title>Attachments (${list.length})</title><body style="margin:0;padding:18px;background:#111">${dlAllBtn}${body}</body>`);
 }
 
 // ── ATTACHMENT GALLERY (browse every attachment across the whole diary) ──
@@ -3636,13 +3715,17 @@ function renderGallery(){
   if(galleryFilter!=='all')items=items.filter(x=>x.type===galleryFilter);
   if(!items.length){grid.innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="empty-icon">🖼</div><p>No attachments yet</p></div>`;return;}
   grid.innerHTML=items.map((x,i)=>`
-    <div onclick="viewGalleryItem(${i})" title="${escH(x.att.name)}" style="cursor:pointer;border-radius:var(--radius-sm);overflow:hidden;background:var(--surface2);border:1px solid var(--border);aspect-ratio:1;display:flex;align-items:center;justify-content:center;position:relative">
-      ${x.att.mime==='application/pdf'?'<span style="font-size:26px">📄</span>':`<img src="${x.att.dataUrl}" style="width:100%;height:100%;object-fit:cover"/>`}
+    <div title="${escH(x.att.name)}" style="cursor:pointer;border-radius:var(--radius-sm);overflow:hidden;background:var(--surface2);border:1px solid var(--border);aspect-ratio:1;display:flex;align-items:center;justify-content:center;position:relative">
+      <div onclick="viewGalleryItem(${i})" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+        ${x.att.mime==='application/pdf'?'<span style="font-size:26px">📄</span>':`<img src="${x.att.dataUrl}" style="width:100%;height:100%;object-fit:cover"/>`}
+      </div>
+      <span onclick="event.stopPropagation();downloadGalleryItem(${i})" title="Download" style="position:absolute;top:4px;right:4px;background:var(--primary);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px;line-height:22px;text-align:center;cursor:pointer;z-index:2;box-shadow:0 1px 4px rgba(0,0,0,0.3)">⬇</span>
       <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.55);color:#fff;font-size:9.5px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(x.label)}</div>
     </div>`).join('');
   window._galleryItems=items;
 }
 function viewGalleryItem(i){const items=window._galleryItems||[];const x=items[i];if(!x)return;viewSavedAttachments([x.att]);}
+function downloadGalleryItem(i){const items=window._galleryItems||[];const x=items[i];if(!x)return;downloadAttachment(x.att);}
 
 // Static HTML snippet for a module's attachment picker — insert once inside that module's modal.
 function attachPickerHTML(key){
@@ -3814,29 +3897,49 @@ function normalizeStorage(){
 }
 
 async function uploadToDrive(name,ab,existingId){
-  if(ab.byteLength > 3.5*1024*1024){
-    const res=await uploadLargeFileToDrive(name,ab,existingId);
-    return res.id;
+  if(ab.byteLength <= 4*1024*1024){
+    try{
+      const res=await simpleUploadToDrive(name,ab,existingId);
+      return res.id;
+    }catch(e){
+      if(ab.byteLength > 3*1024*1024){
+        const res=await uploadLargeFileToDrive(name,ab,existingId);
+        return res.id;
+      }
+      throw e;
+    }
   }
-  const url=existingId
-    ?'https://graph.microsoft.com/v1.0/me/drive/items/'+existingId+'/content'
-    :'https://graph.microsoft.com/v1.0/me/drive/special/approot:/'+name+'.enc:/content';
-  const r=await fetch(url,{method:'PUT',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/octet-stream'},body:ab});
-  if(!r.ok)throw new Error(r.statusText);
-  const j=await r.json();return j.id;
+  const res=await uploadLargeFileToDrive(name,ab,existingId);
+  return res.id;
 }
 // Same as uploadToDrive but also hands back the item's lastModifiedDateTime,
 // so callers can track the remote version for conflict detection.
 async function uploadToDriveMeta(name,ab,existingId){
-  // OneDrive simple upload limit is 4MB; use resumable session for larger files
-  if(ab.byteLength > 3.5*1024*1024){
-    return uploadLargeFileToDrive(name,ab,existingId);
+  // OneDrive simple upload limit is 4MB; use resumable session for larger files.
+  // Try simple upload first (it's faster and simpler), fall back to chunked on 413/failure.
+  if(ab.byteLength <= 4*1024*1024){
+    try{
+      return await simpleUploadToDrive(name,ab,existingId);
+    }catch(e){
+      // If simple upload fails with 413 (too large) or other server error, try chunked
+      if(ab.byteLength > 3*1024*1024){
+        console.warn('Simple upload failed, trying chunked:',e.message);
+        return await uploadLargeFileToDrive(name,ab,existingId);
+      }
+      throw e;
+    }
   }
+  return uploadLargeFileToDrive(name,ab,existingId);
+}
+async function simpleUploadToDrive(name,ab,existingId){
   const url=existingId
     ?'https://graph.microsoft.com/v1.0/me/drive/items/'+existingId+'/content'
     :'https://graph.microsoft.com/v1.0/me/drive/special/approot:/'+name+'.enc:/content';
   const r=await fetch(url,{method:'PUT',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/octet-stream'},body:ab});
-  if(!r.ok)throw new Error(r.statusText);
+  if(!r.ok){
+    const errText=await r.text().catch(()=>'');
+    throw new Error(r.status+' '+r.statusText+(errText?' — '+errText.slice(0,150):''));
+  }
   const j=await r.json();return {id:j.id,lastModifiedDateTime:j.lastModifiedDateTime||null};
 }
 // Resumable upload for files > 4MB — uses OneDrive upload sessions with chunked PUT
@@ -3850,29 +3953,36 @@ async function uploadLargeFileToDrive(name,ab,existingId){
     headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
     body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace'}})
   });
-  if(!sRes.ok)throw new Error('Upload session failed: '+sRes.statusText);
+  if(!sRes.ok){
+    const errText=await sRes.text().catch(()=>'');
+    throw new Error('Upload session failed: '+sRes.status+' '+sRes.statusText+(errText?' — '+errText.slice(0,200):''));
+  }
   const session=await sRes.json();
   const uploadUrl=session.uploadUrl;
-  // 2. Upload in chunks (5MB chunks for stability)
-  const CHUNK=5*1024*1024;
+  // 2. Upload in chunks (smaller 3.75MB chunks for browser compatibility)
+  const CHUNK=3750000; // ~3.75MB (must be multiple of 320KB per MS docs, 3750000/327680≈11.4 — round down)
+  const CHUNK_ALIGNED=Math.floor(CHUNK/327680)*327680; // align to 320KB boundary = 3604480
+  const chunkSize=CHUNK_ALIGNED||3276800; // fallback 3.2MB
   const total=ab.byteLength;
   let offset=0, lastRes=null;
   while(offset<total){
-    const end=Math.min(offset+CHUNK,total);
-    const chunk=ab.slice(offset,end);
+    const end=Math.min(offset+chunkSize,total);
+    const chunkBuf=ab.slice(offset,end);
+    const chunkLen=end-offset;
     const r=await fetch(uploadUrl,{
       method:'PUT',
       headers:{
-        'Content-Length':String(end-offset),
         'Content-Range':`bytes ${offset}-${end-1}/${total}`
       },
-      body:chunk
+      body:chunkBuf
     });
-    if(r.status===202){offset=end;continue;} // more chunks needed
-    if(r.ok){lastRes=await r.json();break;} // upload complete
-    throw new Error('Chunk upload failed at byte '+offset+': '+r.statusText);
+    if(r.status===202){offset=end;continue;} // more chunks expected
+    if(r.status===200||r.status===201){lastRes=await r.json();break;} // upload complete
+    // Error — try to get details
+    const errBody=await r.text().catch(()=>'');
+    throw new Error('Chunk upload failed ('+r.status+'): '+errBody.slice(0,150));
   }
-  if(!lastRes)throw new Error('Upload completed without response');
+  if(!lastRes)throw new Error('Upload completed without final response');
   return {id:lastRes.id,lastModifiedDateTime:lastRes.lastModifiedDateTime||null};
 }
 // Lightweight metadata check — used to detect if someone else (another device/session)
@@ -4970,7 +5080,7 @@ function fabAction(){
   if(currentPanel==='expenses'){
     editingExpenseId=null;
     document.getElementById('exp-modal-title').textContent='💰 Add Expense';
-    ['exp-category','exp-account','exp-remark'].forEach(id=>document.getElementById(id).value='');
+    ['exp-category','exp-account','exp-remark','exp-notes'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('exp-amount').value='';
     document.getElementById('exp-date').value=todayStr();
     document.getElementById('exp-mode').value='';
@@ -5576,7 +5686,7 @@ function renderExpenses(){
   if(to)exps=exps.filter(e=>e.date<=to);
   if(catF)exps=exps.filter(e=>(e.category||'').toLowerCase().includes(catF));
   const expQ=(document.getElementById('exp-search')?.value||'').toLowerCase().trim();
-  if(expQ)exps=exps.filter(e=>[(e.note||''),(e.category||''),(e.mode||''),(e.account||'')].some(v=>v.toLowerCase().includes(expQ)));
+  if(expQ)exps=exps.filter(e=>[(e.note||''),(e.notes||''),(e.category||''),(e.mode||''),(e.account||'')].some(v=>v.toLowerCase().includes(expQ)));
   exps=[...exps].sort((a,b)=>b.date.localeCompare(a.date));
   const allExps=storage.expenses||[];
   const total=exps.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
@@ -5589,6 +5699,7 @@ function renderExpenses(){
         <div style="font-weight:600;font-size:14px">${escH(e.category||'—')}</div>
         <div style="font-size:11px;color:var(--text-muted)">${fmtDate(e.date)} · ${escH(e.mode||'')}${e.account?' · '+escH(e.account):''}</div>
         ${e.note?`<div style="font-size:12px;color:var(--text-mid);margin-top:2px">${escH(e.note)}</div>`:''}
+        ${e.notes?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px;white-space:pre-line;max-height:40px;overflow:hidden;text-overflow:ellipsis">📝 ${escH(e.notes)}</div>`:''}
         ${e.attachments&&e.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="event.stopPropagation();viewSavedAttachments(storage.expenses.find(x=>x.id==='${e.id}').attachments)">📎 ${e.attachments.length} attached</div>`:''}
       </div>
       <div style="font-weight:700;font-size:16px;color:${parseFloat(e.amount)>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(parseFloat(e.amount)).toFixed(0)}</div>
@@ -5608,8 +5719,8 @@ function renderExpenses(){
 function exportExpenseCSV(){
   const exps=[...(storage.expenses||[])].sort((a,b)=>b.date.localeCompare(a.date));
   if(!exps.length)return toast('No expenses to export');
-  const rows=[['Date','Category','Amount','Mode','Account','Note']];
-  exps.forEach(e=>rows.push([e.date,e.category||'',e.amount,e.mode||'',e.account||'',e.note||'']));
+  const rows=[['Date','Category','Amount','Mode','Account','Remark','Notes']];
+  exps.forEach(e=>rows.push([e.date,e.category||'',e.amount,e.mode||'',e.account||'',e.note||'',e.notes||'']));
   const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   const a=document.createElement('a');a.href=url;a.download=(currentDiaryName||'diary')+'_expenses.csv';a.click();URL.revokeObjectURL(url);toast('⬇ CSV exported');
@@ -6035,6 +6146,7 @@ function editExpense(id){
   document.getElementById('exp-mode').value=e.mode||'';
   document.getElementById('exp-account').value=e.account||'';
   document.getElementById('exp-remark').value=e.note||'';
+  document.getElementById('exp-notes').value=e.notes||'';
   renderExpChips();
   initAttachUI('expense',e.attachments);
   openModal('modal-expense');
@@ -6047,6 +6159,7 @@ function submitExpense(){
   const mode=document.getElementById('exp-mode').value.trim();
   const acc=document.getElementById('exp-account').value.trim();
   const note=document.getElementById('exp-remark').value.trim();
+  const notes=document.getElementById('exp-notes').value.trim();
   if(!date||isNaN(rawAmt))return toast('Enter date and an amount');
   // Convention: positive input → expense (debit, stored negative)
   //             negative input → income (credit, stored positive)
@@ -6064,8 +6177,8 @@ function submitExpense(){
   if(mode&&!sl.modes.includes(mode))sl.modes.push(mode);
   if(acc&&!sl.accs.includes(acc))sl.accs.push(acc);
   const attachments=getAttachStage('expense');
-  if(editingExpenseId){const e=storage.expenses.find(x=>x.id===editingExpenseId);if(e)Object.assign(e,{date,category:cat,amount:amt,mode,account:acc,note,attachments});}
-  else storage.expenses.push({id:uuid(),date,category:cat,amount:amt,mode,account:acc,note,attachments});
+  if(editingExpenseId){const e=storage.expenses.find(x=>x.id===editingExpenseId);if(e)Object.assign(e,{date,category:cat,amount:amt,mode,account:acc,note,notes,attachments});}
+  else storage.expenses.push({id:uuid(),date,category:cat,amount:amt,mode,account:acc,note,notes,attachments});
   closeModal('modal-expense');renderExpenses();if(currentExpTab==='report')renderReport();saveToDrive();
 }
 
