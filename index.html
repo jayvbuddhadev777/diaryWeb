@@ -3550,6 +3550,15 @@ function downloadAttachById(key,id){
   if(a)downloadAttachment(a);
 }
 
+function downloadAllExpAttach(expId){
+  const e=(storage.expenses||[]).find(x=>x.id===expId);
+  if(!e||!e.attachments||!e.attachments.length){toast('No attachments');return;}
+  e.attachments.forEach((a,i)=>{
+    setTimeout(()=>downloadAttachment(a),i*300); // stagger downloads to avoid browser blocking
+  });
+  toast('⬇ Downloading '+e.attachments.length+' file'+(e.attachments.length>1?'s':''));
+}
+
 function fileToDataUrl(file){
   return new Promise((resolve,reject)=>{
     const r=new FileReader();
@@ -3858,10 +3867,34 @@ async function showUserAndDiaries(){
 async function odReq(url,method,body,ct){
   const h={Authorization:'Bearer '+accessToken};
   if(ct)h['Content-Type']=ct;
-  const r=await fetch(url,{method:method||'GET',headers:h,body});
+  let r=await fetch(url,{method:method||'GET',headers:h,body});
+  // If token expired, try to refresh silently and retry once
+  if(r.status===401&&msalApp){
+    try{
+      const accounts=msalApp.getAllAccounts();
+      if(accounts.length){
+        const tokenResp=await msalApp.acquireTokenSilent({scopes:OD_SCOPES,account:accounts[0]});
+        accessToken=tokenResp.accessToken;
+        h.Authorization='Bearer '+accessToken;
+        r=await fetch(url,{method:method||'GET',headers:h,body});
+      }
+    }catch(e){/* silent refresh failed — fall through to error */}
+  }
   if(!r.ok)throw new Error('HTTP '+r.status);
   if(r.status===204)return{};
   return r.json();
+}
+
+// Refresh OneDrive token if expired — call before any direct fetch that uses accessToken
+async function ensureFreshToken(){
+  if(!msalApp)return;
+  try{
+    const accounts=msalApp.getAllAccounts();
+    if(accounts.length){
+      const tokenResp=await msalApp.acquireTokenSilent({scopes:OD_SCOPES,account:accounts[0]});
+      accessToken=tokenResp.accessToken;
+    }
+  }catch(e){/* MSAL will throw if interactive login needed — caller handles errors */}
 }
 
 async function ensureFolder(){
@@ -3969,6 +4002,7 @@ async function uploadToDriveMeta(name,ab,existingId){
   return uploadLargeFileToDrive(name,ab,existingId);
 }
 async function simpleUploadToDrive(name,ab,existingId){
+  await ensureFreshToken();
   const url=existingId
     ?'https://graph.microsoft.com/v1.0/me/drive/items/'+existingId+'/content'
     :'https://graph.microsoft.com/v1.0/me/drive/special/approot:/'+name+'.enc:/content';
@@ -3981,6 +4015,7 @@ async function simpleUploadToDrive(name,ab,existingId){
 }
 // Resumable upload for files > 4MB — uses OneDrive upload sessions with chunked PUT
 async function uploadLargeFileToDrive(name,ab,existingId){
+  await ensureFreshToken();
   // 1. Create an upload session
   // For existing files, use path-based URL to avoid ETag conflicts
   const sessionUrl=existingId
@@ -4246,6 +4281,7 @@ async function autoSyncTick(){
 async function pullRemoteChanges(newModified){
   if(dirty||_savingNow)return; // never overwrite unsaved local changes
   try{
+    await ensureFreshToken();
     setSyncBadge('syncing','Syncing…');
     const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+driveFileId+'/content',{headers:{Authorization:'Bearer '+accessToken}});
     if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
@@ -5146,7 +5182,7 @@ function navTo(p){
   if(p==='tasks')renderTasks();
   if(p==='lists')renderChecklists();
   if(p==='calendar')renderCalPanel();
-  if(p==='expenses'){renderExpenses();if(currentExpTab==='report')renderReport();}
+  if(p==='expenses'){initExpDates();renderExpenses();if(currentExpTab==='report')renderReport();}
   if(p==='contacts')renderContacts();
   if(p==='notes')renderNotes();
   if(p==='notebook')renderNotebooks();
@@ -5768,16 +5804,21 @@ function switchExpTab(tab){
   else renderExpenses();
 }
 
+function initExpDates(){
+  const fromEl=document.getElementById('exp-from'),toEl=document.getElementById('exp-to');
+  if(!fromEl||!toEl)return;
+  const now=new Date();
+  const y=now.getFullYear(),m=now.getMonth();
+  const first=new Date(y,m,1),last=new Date(y,m+1,0);
+  fromEl.value=first.toISOString().slice(0,10);
+  toEl.value=last.toISOString().slice(0,10);
+}
+
 function renderExpenses(){
   const fromEl=document.getElementById('exp-from'),toEl=document.getElementById('exp-to');
-  // Default to the current month when no period has been chosen yet, so the summary
-  // cards below always reflect a selected period rather than an all-time total.
+  // If dates are empty (shouldn't happen now but safety), set current month
   if(fromEl&&toEl&&!fromEl.value&&!toEl.value){
-    const now=new Date();
-    const y=now.getFullYear(),m=now.getMonth();
-    const first=new Date(y,m,1),last=new Date(y,m+1,0);
-    fromEl.value=first.toISOString().slice(0,10);
-    toEl.value=last.toISOString().slice(0,10);
+    initExpDates();
   }
   const from=fromEl?.value||'',to=toEl?.value||'';
   const catF=(document.getElementById('exp-cat-filter')?.value||'').toLowerCase().trim();
@@ -5800,7 +5841,7 @@ function renderExpenses(){
         <div style="font-size:11px;color:var(--text-muted)">${fmtDate(e.date)} · ${escH(e.mode||'')}${e.account?' · '+escH(e.account):''}</div>
         ${e.note?`<div style="font-size:12px;color:var(--text-mid);margin-top:2px">${escH(e.note)}</div>`:''}
         ${e.notes?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px;white-space:pre-line;max-height:40px;overflow:hidden;text-overflow:ellipsis">📝 ${escH(e.notes)}</div>`:''}
-        ${e.attachments&&e.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="event.stopPropagation();viewSavedAttachments(storage.expenses.find(x=>x.id==='${e.id}').attachments)">📎 ${e.attachments.length} attached</div>`:''}
+        ${e.attachments&&e.attachments.length?`<div style="margin-top:3px;display:flex;align-items:center;gap:8px"><span onclick="event.stopPropagation();viewSavedAttachments(storage.expenses.find(x=>x.id==='${e.id}').attachments)" style="cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600">📎 ${e.attachments.length} attached</span><span onclick="event.stopPropagation();downloadAllExpAttach('${e.id}')" style="cursor:pointer;font-size:11px;color:var(--primary);font-weight:700">⬇ Download</span></div>`:''}
       </div>
       <div style="font-weight:700;font-size:16px;color:${parseFloat(e.amount)>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(parseFloat(e.amount)).toFixed(0)}</div>
       <div style="display:flex;gap:4px">
@@ -6709,6 +6750,14 @@ function migrateNotebooks(){
   });
 }
 
+// Track which notebooks are expanded (collapsed by default to save space)
+let _nbExpanded=new Set();
+function toggleNbCollapse(nbId){
+  if(_nbExpanded.has(nbId))_nbExpanded.delete(nbId);
+  else _nbExpanded.add(nbId);
+  renderNotebooks();
+}
+
 function renderNotebooks(){
   migrateNotebooks();
   const nbs=storage.notebooks||{};
@@ -6728,6 +6777,8 @@ function renderNotebooks(){
       if(pageMatchIds.length)matchedPageIds[k]=pageMatchIds;
       return nameMatches||pageMatchIds.length>0;
     });
+    // When searching, expand all matching notebooks
+    keys.forEach(k=>_nbExpanded.add(k));
   }
   document.getElementById('notebook-list').innerHTML=keys.length?keys.map(k=>{
     const nb=nbs[k];
@@ -6738,18 +6789,21 @@ function renderNotebooks(){
     let pages=Object.entries(nb.pages||{});
     const onlyPageMatches=nbq&&matchedPageIds[k]&&!(nb.name||'').toLowerCase().includes(nbq);
     if(onlyPageMatches)pages=pages.filter(([pk])=>matchedPageIds[k].includes(pk));
-    const pageCount=pages.length;
+    const pageCount=Object.keys(nb.pages||{}).length;
+    const isExpanded=_nbExpanded.has(k)||isLocked;
+    const chevron=isLocked?'':`<span onclick="event.stopPropagation();toggleNbCollapse('${k}')" style="cursor:pointer;font-size:18px;transition:transform 0.2s;display:inline-block;transform:rotate(${isExpanded?'90':'0'}deg);margin-right:6px">▶</span>`;
     return`<div class="nb-notebook">
-      <div class="nb-nb-header">
+      <div class="nb-nb-header" onclick="toggleNbCollapse('${k}')" style="cursor:pointer">
+        ${chevron}
         <span style="font-size:22px;margin-right:8px">${icon}</span>
         <div style="flex:1;min-width:0">
           <div class="nb-nb-title">${escH(nb.name)} ${nb.locked?`<span style="font-size:13px">${isLocked?'🔒':'🔓'}</span>`:''}</div>
           <div style="font-size:11px;color:var(--primary);opacity:0.7">${pageCount} page${pageCount!==1?'s':''}${onlyPageMatches?' matching':''}</div>
         </div>
-        <button class="icon-btn edit" onclick="openNbSettings('${k}')" title="Settings" style="margin-right:4px">⚙️</button>
+        <button class="icon-btn edit" onclick="event.stopPropagation();openNbSettings('${k}')" title="Settings" style="margin-right:4px">⚙️</button>
         ${isLocked
-          ?`<button class="btn btn-primary btn-sm" onclick="openNbUnlock('${k}','pages')">🔓 Unlock</button>`
-          :`<button class="btn btn-secondary btn-sm" onclick="addNbPage('${k}')">＋ Page</button>`
+          ?`<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openNbUnlock('${k}','pages')">🔓 Unlock</button>`
+          :`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();addNbPage('${k}')">＋ Page</button>`
         }
       </div>
       ${isLocked
@@ -6758,17 +6812,19 @@ function renderNotebooks(){
             <div>Password required to view pages</div>
             <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="openNbUnlock('${k}','pages')">Unlock Notebook</button>
           </div>`
-        :pages.length
-          ?pages.map(([pk,p])=>`
-            <div class="nb-page" onclick="editNbPage('${k}','${pk}')">
-              <span style="font-size:16px">📄</span>
-              <div style="flex:1;min-width:0">
-                <div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(p.title||'Untitled')}</div>
-                ${p.modified?`<div style="font-size:10px;color:var(--text-muted)">${fmtDate(p.modified)}</div>`:''}
-              </div>
-              <button class="icon-btn" onclick="event.stopPropagation();deleteNbPage('${k}','${pk}')" style="padding:5px 7px;font-size:12px">🗑</button>
-            </div>`).join('')
-          :`<div style="padding:14px 16px;font-size:13px;color:var(--text-muted)">No pages yet — tap ＋ Page to add one</div>`
+        :isExpanded
+          ?(pages.length
+            ?pages.map(([pk,p])=>`
+              <div class="nb-page" onclick="editNbPage('${k}','${pk}')">
+                <span style="font-size:16px">📄</span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(p.title||'Untitled')}</div>
+                  ${p.modified?`<div style="font-size:10px;color:var(--text-muted)">${fmtDate(p.modified)}</div>`:''}
+                </div>
+                <button class="icon-btn" onclick="event.stopPropagation();deleteNbPage('${k}','${pk}')" style="padding:5px 7px;font-size:12px">🗑</button>
+              </div>`).join('')
+            :`<div style="padding:14px 16px;font-size:13px;color:var(--text-muted)">No pages yet — tap ＋ Page to add one</div>`)
+          :`<div onclick="toggleNbCollapse('${k}')" style="padding:10px 16px;font-size:12px;color:var(--text-muted);cursor:pointer;font-weight:600">▸ ${pageCount} page${pageCount!==1?'s':''} — tap to expand</div>`
       }
     </div>`;
   }).join(''):(nbq?`<div class="empty"><div class="empty-icon">🔍</div><p>No notebooks or pages match "${escH(document.getElementById('nb-search').value.trim())}"</p></div>`:`<div class="empty"><div class="empty-icon">📚</div><p>No notebooks yet</p></div>`);
