@@ -1755,6 +1755,12 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             <span id="cal-panel-month-label" style="font-family:'Fraunces',serif;font-weight:700;font-size:17px;color:var(--primary)"></span>
             <button class="btn btn-secondary btn-sm" onclick="calPanelNext()">Next ›</button>
           </div>
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;user-select:none">
+              💰 Show Expenses
+              <input type="checkbox" id="cal-show-expenses" onchange="calShowExpToggle()" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer"/>
+            </label>
+          </div>
           <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;margin-bottom:4px">
             <div style="font-size:10px;font-weight:700;color:var(--text-muted);padding:4px 0">Sun</div>
             <div style="font-size:10px;font-weight:700;color:var(--text-muted);padding:4px 0">Mon</div>
@@ -5334,9 +5340,20 @@ function goToItem(panel,elId,query,opts){
 // ── CALENDAR PANEL (full smart calendar) ──
 let calPanelDate=new Date();
 let calPanelSelected=todayStr();
+let calShowExpenses=localStorage.getItem('sd_cal_show_exp')==='1';
+
+function calShowExpToggle(){
+  const cb=document.getElementById('cal-show-expenses');
+  calShowExpenses=cb?cb.checked:!calShowExpenses;
+  localStorage.setItem('sd_cal_show_exp',calShowExpenses?'1':'0');
+  renderCalPanel();
+}
 
 function renderCalPanel(){
   calPanelDate=calPanelDate||new Date();
+  // Sync toggle checkbox with state
+  const expCb=document.getElementById('cal-show-expenses');
+  if(expCb)expCb.checked=calShowExpenses;
   const y=calPanelDate.getFullYear(),m=calPanelDate.getMonth();
   document.getElementById('cal-panel-month-label').textContent=
     new Date(y,m,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
@@ -5352,7 +5369,7 @@ function renderCalPanel(){
     const overdueTask=(storage&&storage.todos||[]).some(t=>t.due===ds&&!t.done&&ds<today);
     const remindersDue=(storage&&storage.todos||[]).filter(t=>!t.done&&t.due&&(t.reminders||[]).some(r=>computeReminderDate(t.due,r.value,r.unit)===ds));
     const isToday=ds===today,isSel=ds===calPanelSelected;
-    const hasExpense=(storage&&storage.expenses||[]).some(e=>e.date===ds);
+    const hasExpense=calShowExpenses&&(storage&&storage.expenses||[]).some(e=>e.date===ds);
     const dayOccasions=occasionsOnDate(ds);
     let bg='var(--surface)',color='var(--text)',border='1px solid var(--border)',fw='400';
     if(isToday){bg='var(--primary)';color='#fff';border='none';fw='700';}
@@ -5449,14 +5466,15 @@ function renderCalPanelDayDetail(ds){
       ${tasksHtml}
     </div>`);
   }
-  // Expenses
-  const dayExps=(storage&&storage.expenses||[]).filter(e=>e.date===ds);
+  // Expenses (only if toggle is on)
+  const dayExps=calShowExpenses?(storage&&storage.expenses||[]).filter(e=>e.date===ds):[];
   if(dayExps.length){
     const total=dayExps.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
     const expsHtml=dayExps.map(e=>`
-      <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <div ondblclick="editExpense('${e.id}')" style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer" title="Double-tap to edit">
         <span style="flex:1;font-size:13px">${escH(e.category||'—')}${e.note?' · '+escH(e.note):''}</span>
         <span style="font-weight:700;font-size:13px;color:${parseFloat(e.amount)>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(parseFloat(e.amount)).toFixed(0)}</span>
+        <button class="icon-btn edit" onclick="event.stopPropagation();editExpense('${e.id}')" style="padding:4px 6px;font-size:11px">✏️</button>
       </div>`).join('');
     parts.push(`<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -5812,6 +5830,15 @@ function initExpDates(){
   const first=new Date(y,m,1),last=new Date(y,m+1,0);
   fromEl.value=first.toISOString().slice(0,10);
   toEl.value=last.toISOString().slice(0,10);
+  // Also reset report month/year to current month
+  const monthSel=document.getElementById('rep-month');
+  const yearSel=document.getElementById('rep-year');
+  if(monthSel)monthSel.value=m+1;
+  if(yearSel)yearSel.value=String(y);
+  // Reset range dates too
+  const repFrom=document.getElementById('rep-from'),repTo=document.getElementById('rep-to');
+  if(repFrom)repFrom.value=first.toISOString().slice(0,10);
+  if(repTo)repTo.value=last.toISOString().slice(0,10);
 }
 
 function renderExpenses(){
@@ -6017,6 +6044,16 @@ function setReportMode(mode){
   document.getElementById('rep-mode-range').classList.toggle('active',mode==='range');
   document.getElementById('rep-month-controls').style.display=mode==='month'?'flex':'none';
   document.getElementById('rep-range-controls').style.display=mode==='range'?'flex':'none';
+  // Default range dates to current month when switching to range mode
+  if(mode==='range'){
+    const fromEl=document.getElementById('rep-from'),toEl=document.getElementById('rep-to');
+    if(fromEl&&toEl&&!fromEl.value&&!toEl.value){
+      const now=new Date();
+      const y=now.getFullYear(),m=now.getMonth();
+      fromEl.value=new Date(y,m,1).toISOString().slice(0,10);
+      toEl.value=new Date(y,m+1,0).toISOString().slice(0,10);
+    }
+  }
   renderReport();
 }
 let _repFiltered=[],_repGroupKeyFor=null,_repGroupLabel='';
