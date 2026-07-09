@@ -732,6 +732,35 @@ mark.nb-find-hl.nb-find-hl-active { background:#ff9800; color:#1a1f36; box-shado
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 
+/* Expense autocomplete suggestion dropdown */
+.exp-suggest-list {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0; right: 0;
+  z-index: 50;
+  background: var(--surface);
+  border: 2px solid var(--primary);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  max-height: 160px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+.exp-suggest-list.open { display: block; }
+.exp-suggest-item {
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.exp-suggest-item:last-child { border-bottom: none; }
+.exp-suggest-item:active,
+.exp-suggest-item:hover { background: var(--primary-light); color: var(--primary); }
+.exp-suggest-item mark { background: var(--gold); color: #000; border-radius: 2px; padding: 0 1px; }
+
 /* Color picker */
 .color-row { display: flex; gap: 10px; flex-wrap: wrap; padding: 4px 0; }
 .color-swatch { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; transition: border-color 0.15s, transform 0.15s; }
@@ -1988,8 +2017,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         <button onclick="openManage('cat')" style="background:none;border:none;font-size:12px;color:var(--primary);font-weight:700;cursor:pointer">✏️ Manage</button>
       </div>
       <div id="exp-cat-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
-      <input type="text" class="form-input" id="exp-category" placeholder="Or type new category…" list="exp-cat-list" style="font-size:14px;padding:10px 12px"/>
-      <datalist id="exp-cat-list"></datalist>
+      <div style="position:relative">
+        <input type="text" class="form-input" id="exp-category" placeholder="Type or pick category…" autocomplete="off" oninput="showExpSuggestions('cat')" onfocus="showExpSuggestions('cat')" style="font-size:14px;padding:10px 12px"/>
+        <div id="exp-suggest-cat" class="exp-suggest-list"></div>
+      </div>
     </div>
 
     <!-- Mode with manage -->
@@ -1999,7 +2030,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         <button onclick="openManage('mode')" style="background:none;border:none;font-size:12px;color:var(--primary);font-weight:700;cursor:pointer">✏️ Manage</button>
       </div>
       <div id="exp-mode-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
-      <input type="text" class="form-input" id="exp-mode" placeholder="Or type mode…" style="font-size:14px;padding:10px 12px"/>
+      <div style="position:relative">
+        <input type="text" class="form-input" id="exp-mode" placeholder="Type or pick mode…" autocomplete="off" oninput="showExpSuggestions('mode')" onfocus="showExpSuggestions('mode')" style="font-size:14px;padding:10px 12px"/>
+        <div id="exp-suggest-mode" class="exp-suggest-list"></div>
+      </div>
     </div>
 
     <!-- Account with manage -->
@@ -2009,8 +2043,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         <button onclick="openManage('acc')" style="background:none;border:none;font-size:12px;color:var(--primary);font-weight:700;cursor:pointer">✏️ Manage</button>
       </div>
       <div id="exp-acc-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
-      <input type="text" class="form-input" id="exp-account" placeholder="Or type account…" list="exp-acc-list" style="font-size:14px;padding:10px 12px"/>
-      <datalist id="exp-acc-list"></datalist>
+      <div style="position:relative">
+        <input type="text" class="form-input" id="exp-account" placeholder="Type or pick account…" autocomplete="off" oninput="showExpSuggestions('acc')" onfocus="showExpSuggestions('acc')" style="font-size:14px;padding:10px 12px"/>
+        <div id="exp-suggest-acc" class="exp-suggest-list"></div>
+      </div>
     </div>
 
     <div class="form-group">
@@ -5772,12 +5808,12 @@ function renderExpenses(){
         <button class="icon-btn" onclick="event.stopPropagation();deleteExpense('${e.id}')">🗑</button>
       </div>
     </div>`).join(''):`<div class="empty"><div class="empty-icon">💰</div><p>No expenses</p></div>`;
-  // update datalists from managed lists
-  const sl=storage.expLists||{};
+  // Datalists removed — using live suggestion dropdowns instead
   const allCats=[...new Set([...(sl.cats||[]),...allExps.map(e=>e.category).filter(Boolean)])];
   const allAccs=[...new Set([...(sl.accs||[]),...allExps.map(e=>e.account).filter(Boolean)])];
-  document.getElementById('exp-cat-list').innerHTML=allCats.map(c=>`<option value="${escH(c)}">`).join('');
-  document.getElementById('exp-acc-list').innerHTML=allAccs.map(a=>`<option value="${escH(a)}">`).join('');
+  // Merge any categories/accounts found in existing data into the managed lists
+  allCats.forEach(c=>{if(c&&!sl.cats.includes(c))sl.cats.push(c);});
+  allAccs.forEach(a=>{if(a&&!sl.accs.includes(a))sl.accs.push(a);});
 }
 
 function exportExpenseCSV(){
@@ -6308,6 +6344,52 @@ function renderExpChips(){
   if(modeEl) modeEl.innerHTML=sl.modes.map(m=>`<div onclick="pickChip('mode','${escH(m)}')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid ${m===selMode?'var(--primary)':'var(--border)'};background:${m===selMode?'var(--primary-light)':'var(--surface2)'};color:${m===selMode?'var(--primary)':'var(--text-mid)'};white-space:nowrap;flex-shrink:0">${escH(m)}</div>`).join('');
   if(accEl) accEl.innerHTML=sl.accs.length?sl.accs.map(a=>`<div onclick="pickChip('acc','${escH(a)}')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid ${a===selAcc?'var(--primary)':'var(--border)'};background:${a===selAcc?'var(--primary-light)':'var(--surface2)'};color:${a===selAcc?'var(--primary)':'var(--text-mid)'};white-space:nowrap;flex-shrink:0">${escH(a)}</div>`).join(''):'<span style="font-size:12px;color:var(--text-muted)">No accounts yet — add via Manage</span>';
 }
+
+// Live autocomplete suggestions for expense category/mode/account
+function showExpSuggestions(key){
+  const fieldMap={cat:'exp-category',mode:'exp-mode',acc:'exp-account'};
+  const input=document.getElementById(fieldMap[key]);
+  const dropdown=document.getElementById('exp-suggest-'+key);
+  if(!input||!dropdown)return;
+  const q=(input.value||'').toLowerCase().trim();
+  const sl=getExpLists();
+  const listMap={cat:sl.cats,mode:sl.modes,acc:sl.accs};
+  const items=listMap[key]||[];
+  // Filter: show all if empty query, otherwise match
+  const matches=q?items.filter(v=>v.toLowerCase().includes(q)):items;
+  // Don't show if exact match already typed or no items
+  if(!matches.length||matches.length===1&&matches[0].toLowerCase()===q){
+    dropdown.classList.remove('open');
+    return;
+  }
+  dropdown.innerHTML=matches.map(v=>{
+    const hl=q?v.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<mark>$1</mark>'):escH(v);
+    return `<div class="exp-suggest-item" onmousedown="pickExpSuggestion('${key}','${escH(v)}')">${hl}</div>`;
+  }).join('');
+  dropdown.classList.add('open');
+}
+function pickExpSuggestion(key,val){
+  const fieldMap={cat:'exp-category',mode:'exp-mode',acc:'exp-account'};
+  const input=document.getElementById(fieldMap[key]);
+  if(input)input.value=val;
+  hideExpSuggestions(key);
+  renderExpChips();
+}
+function hideExpSuggestions(key){
+  const dropdown=document.getElementById('exp-suggest-'+key);
+  if(dropdown)dropdown.classList.remove('open');
+}
+// Close suggestions when clicking outside
+document.addEventListener('click',function(e){
+  ['cat','mode','acc'].forEach(key=>{
+    const fieldMap={cat:'exp-category',mode:'exp-mode',acc:'exp-account'};
+    const input=document.getElementById(fieldMap[key]);
+    const dropdown=document.getElementById('exp-suggest-'+key);
+    if(dropdown&&input&&!input.contains(e.target)&&!dropdown.contains(e.target)){
+      dropdown.classList.remove('open');
+    }
+  });
+});
 
 function pickChip(key,val){
   const fieldMap={cat:'exp-category',mode:'exp-mode',acc:'exp-account'};
