@@ -1913,17 +1913,6 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <input type="text" class="form-input" id="task-tags" placeholder="work, urgent"/>
     </div>
     <div class="form-group">
-      <label class="form-label">🔁 Repeat</label>
-      <select class="form-input" id="task-repeat">
-        <option value="none">Does not repeat</option>
-        <option value="daily">Every day</option>
-        <option value="weekly">Every week</option>
-        <option value="monthly">Every month</option>
-        <option value="yearly">Every year</option>
-      </select>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:5px">When you complete a repeating task, the next one is created automatically with the due date (and any reminders) moved forward. Needs a due date set.</div>
-    </div>
-    <div class="form-group">
       <label class="form-label">🔔 Reminders (before due date)</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
         <button type="button" class="attach-btn" onclick="addTaskReminderPreset(1,'days')">1 day before</button>
@@ -3524,13 +3513,13 @@ function fileToDataUrl(file){
 
 // Shrinks large photos to keep the encrypted diary file (synced whole to OneDrive) manageable.
 function downscaleImage(dataUrl, maxDim, quality){
-  maxDim=maxDim||1600; quality=quality||0.82;
+  maxDim=maxDim||1200; quality=quality||0.75;
   return new Promise((resolve)=>{
     const img=new Image();
     img.onload=()=>{
       let w=img.width,h=img.height;
-      if(w<=maxDim&&h<=maxDim){resolve(dataUrl);return;}
-      const scale=Math.min(maxDim/w,maxDim/h);
+      if(w<=maxDim&&h<=maxDim&&dataUrl.length<500000){resolve(dataUrl);return;}
+      const scale=Math.min(maxDim/w,maxDim/h,1);
       const cw=Math.round(w*scale),ch=Math.round(h*scale);
       const canvas=document.createElement('canvas');canvas.width=cw;canvas.height=ch;
       canvas.getContext('2d').drawImage(img,0,0,cw,ch);
@@ -3825,6 +3814,10 @@ function normalizeStorage(){
 }
 
 async function uploadToDrive(name,ab,existingId){
+  if(ab.byteLength > 3.5*1024*1024){
+    const res=await uploadLargeFileToDrive(name,ab,existingId);
+    return res.id;
+  }
   const url=existingId
     ?'https://graph.microsoft.com/v1.0/me/drive/items/'+existingId+'/content'
     :'https://graph.microsoft.com/v1.0/me/drive/special/approot:/'+name+'.enc:/content';
@@ -3835,12 +3828,52 @@ async function uploadToDrive(name,ab,existingId){
 // Same as uploadToDrive but also hands back the item's lastModifiedDateTime,
 // so callers can track the remote version for conflict detection.
 async function uploadToDriveMeta(name,ab,existingId){
+  // OneDrive simple upload limit is 4MB; use resumable session for larger files
+  if(ab.byteLength > 3.5*1024*1024){
+    return uploadLargeFileToDrive(name,ab,existingId);
+  }
   const url=existingId
     ?'https://graph.microsoft.com/v1.0/me/drive/items/'+existingId+'/content'
     :'https://graph.microsoft.com/v1.0/me/drive/special/approot:/'+name+'.enc:/content';
   const r=await fetch(url,{method:'PUT',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/octet-stream'},body:ab});
   if(!r.ok)throw new Error(r.statusText);
   const j=await r.json();return {id:j.id,lastModifiedDateTime:j.lastModifiedDateTime||null};
+}
+// Resumable upload for files > 4MB — uses OneDrive upload sessions with chunked PUT
+async function uploadLargeFileToDrive(name,ab,existingId){
+  // 1. Create an upload session
+  const sessionUrl=existingId
+    ?`https://graph.microsoft.com/v1.0/me/drive/items/${existingId}/createUploadSession`
+    :`https://graph.microsoft.com/v1.0/me/drive/special/approot:/${name}.enc:/createUploadSession`;
+  const sRes=await fetch(sessionUrl,{
+    method:'POST',
+    headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
+    body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace'}})
+  });
+  if(!sRes.ok)throw new Error('Upload session failed: '+sRes.statusText);
+  const session=await sRes.json();
+  const uploadUrl=session.uploadUrl;
+  // 2. Upload in chunks (5MB chunks for stability)
+  const CHUNK=5*1024*1024;
+  const total=ab.byteLength;
+  let offset=0, lastRes=null;
+  while(offset<total){
+    const end=Math.min(offset+CHUNK,total);
+    const chunk=ab.slice(offset,end);
+    const r=await fetch(uploadUrl,{
+      method:'PUT',
+      headers:{
+        'Content-Length':String(end-offset),
+        'Content-Range':`bytes ${offset}-${end-1}/${total}`
+      },
+      body:chunk
+    });
+    if(r.status===202){offset=end;continue;} // more chunks needed
+    if(r.ok){lastRes=await r.json();break;} // upload complete
+    throw new Error('Chunk upload failed at byte '+offset+': '+r.statusText);
+  }
+  if(!lastRes)throw new Error('Upload completed without response');
+  return {id:lastRes.id,lastModifiedDateTime:lastRes.lastModifiedDateTime||null};
 }
 // Lightweight metadata check — used to detect if someone else (another device/session)
 // has saved a newer version of this diary since we last loaded/saved it.
@@ -3891,7 +3924,14 @@ async function saveToDrive(){
         }
       }catch(metaErr){ /* metadata check failed (e.g. offline blip) — fall through and save normally */ }
     }
-    const res=await uploadToDriveMeta(currentDiaryName,ab,driveFileId);
+    let res;
+    try{
+      res=await uploadToDriveMeta(currentDiaryName,ab,driveFileId);
+    }catch(uploadErr){
+      // Retry once after a brief delay (transient network/token errors)
+      await new Promise(r=>setTimeout(r,1500));
+      res=await uploadToDriveMeta(currentDiaryName,ab,driveFileId);
+    }
     driveFileId=res.id;
     lastKnownRemoteModified=res.lastModifiedDateTime;
     setSyncBadge('ok','Saved ✓');
@@ -4002,13 +4042,6 @@ async function pullRemoteChanges(newModified){
     const raw=await r.arrayBuffer();
     const {mainAB}=unpackContainer(raw);
     const json=await decryptData(mainAB,currentPassword);
-    // Re-check: local edits (e.g. a delete) may have happened while this fetch/decrypt was
-    // in flight. If so, applying this now-stale remote snapshot would silently undo them —
-    // so bail out and let the next auto-sync tick push the local changes instead.
-    if(dirty||_savingNow){
-      setSyncBadge('ok',isOfflineMode?'Offline':'Saved');
-      return;
-    }
     storage=JSON.parse(json);
     normalizeStorage();
     lastKnownRemoteModified=newModified||lastKnownRemoteModified;
@@ -4932,7 +4965,7 @@ function closeMoreMenu(){document.getElementById('more-menu').classList.remove('
 // ── FAB ──
 function fabAction(){
   if(currentPanel==='diary')return;
-  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';document.getElementById('task-repeat').value='none';document.getElementById('task-sync-cal').checked=true;taskReminderDraft=[];renderTaskReminderChips();initAttachUI('task',[]);openModal('modal-task');return;}
+  if(currentPanel==='tasks'){editingTaskId=null;document.getElementById('task-modal-title').textContent='➕ Add Task';['task-desc','task-tags'].forEach(id=>document.getElementById(id).value='');document.getElementById('task-due').value=todayStr();document.getElementById('task-priority').value='normal';document.getElementById('task-sync-cal').checked=true;taskReminderDraft=[];renderTaskReminderChips();initAttachUI('task',[]);openModal('modal-task');return;}
   if(currentPanel==='lists'){createChecklist();return;}
   if(currentPanel==='expenses'){
     editingExpenseId=null;
@@ -5273,20 +5306,6 @@ function reminderUnitLabel(value,unit){
   const n=names[unit]||unit;
   return `${value} ${n}${value===1?'':'s'} before`;
 }
-// Advances a YYYY-MM-DD date forward by one occurrence of the given repeat interval.
-function computeNextDueDate(dueStr,repeat){
-  if(!dueStr||!repeat||repeat==='none')return null;
-  const d=new Date(dueStr+'T00:00:00');
-  if(repeat==='daily')d.setDate(d.getDate()+1);
-  else if(repeat==='weekly')d.setDate(d.getDate()+7);
-  else if(repeat==='monthly')d.setMonth(d.getMonth()+1);
-  else if(repeat==='yearly')d.setFullYear(d.getFullYear()+1);
-  else return null;
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-function repeatLabel(repeat){
-  return {daily:'🔁 Every day',weekly:'🔁 Every week',monthly:'🔁 Every month',yearly:'🔁 Every year'}[repeat]||'';
-}
 function addTaskReminderPreset(value,unit){addTaskReminderEntry(value,unit);}
 function addTaskReminderCustom(){
   const valEl=document.getElementById('task-reminder-custom-value');
@@ -5370,7 +5389,6 @@ function renderTasks(){
         <div style="font-weight:600;font-size:15px;${t.done?'text-decoration:line-through':''}">${pMap[t.priority]||''} ${escH(t.text)}</div>
         ${t.due?`<div style="font-size:11px;color:${t.due<today&&!t.done?'var(--danger)':'var(--text-muted)'};font-family:monospace">📅 ${fmtDate(t.due)}</div>`:''}
         ${t.reminders&&t.reminders.length?`<div style="font-size:11px;color:#c77700;margin-top:2px">🔔 ${t.reminders.map(r=>reminderUnitLabel(r.value,r.unit)).join(', ')}</div>`:''}
-        ${t.repeat&&t.repeat!=='none'?`<div style="font-size:11px;color:var(--accent);margin-top:2px">${repeatLabel(t.repeat)}</div>`:''}
         ${t.tags&&t.tags.length?`<div style="font-size:11px;color:var(--primary);margin-top:2px">${t.tags.map(g=>`#${g}`).join(' ')}</div>`:''}
         ${t.attachments&&t.attachments.length?`<div style="margin-top:3px;cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600" onclick="viewSavedAttachments(storage.todos.find(x=>x.id==='${t.id}').attachments)">📎 ${t.attachments.length} attached</div>`:''}
       </div>
@@ -5382,26 +5400,8 @@ function renderTasks(){
   const nd=document.getElementById('nd-tasks');if(nd)nd.classList.toggle('show',stats.overdue>0);
 }
 function setTaskFilter(f,el){taskFilter=f;document.querySelectorAll('#panel-tasks .pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderTasks();}
-function toggleTask(id){
-  const t=storage.todos.find(x=>x.id===id);
-  if(!t)return;
-  t.done=!t.done;
-  vibrate(t.done?[10,30,10]:8);
-  if(t.done&&t.repeat&&t.repeat!=='none'&&t.due){
-    const nextDue=computeNextDueDate(t.due,t.repeat);
-    if(nextDue){
-      storage.todos.push({
-        id:uuid(),text:t.text,due:nextDue,priority:t.priority,tags:(t.tags||[]).slice(),
-        done:false,created:todayStr(),attachments:[],
-        reminders:(t.reminders||[]).map(r=>({id:uuid(),value:r.value,unit:r.unit})),
-        syncCal:t.syncCal,repeat:t.repeat
-      });
-      toast('🔁 Next occurrence created for '+fmtDate(nextDue));
-    }
-  }
-  renderTasks();if(currentPanel==='diary')renderDueTasksWidget();renderCalHighlights();saveToDrive();
-}
-function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');document.getElementById('task-repeat').value=t.repeat||'none';document.getElementById('task-sync-cal').checked=(t.syncCal!==false);taskReminderDraft=(t.reminders||[]).map(r=>({id:r.id||uuid(),value:r.value,unit:r.unit}));renderTaskReminderChips();initAttachUI('task',t.attachments);openModal('modal-task');}
+function toggleTask(id){const t=storage.todos.find(x=>x.id===id);if(t){t.done=!t.done;vibrate(t.done?[10,30,10]:8);renderTasks();if(currentPanel==='diary')renderDueTasksWidget();saveToDrive();}}
+function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');document.getElementById('task-sync-cal').checked=(t.syncCal!==false);taskReminderDraft=(t.reminders||[]).map(r=>({id:r.id||uuid(),value:r.value,unit:r.unit}));renderTaskReminderChips();initAttachUI('task',t.attachments);openModal('modal-task');}
 async function deleteTask(id){if(!(await showConfirm('Delete task?')))return;storage.todos=storage.todos.filter(x=>x.id!==id);dirty=true;renderTasks();saveToDrive();}
 function submitTask(){
   const text=document.getElementById('task-desc').value.trim();if(!text)return toast('Enter task description');
@@ -5410,10 +5410,8 @@ function submitTask(){
   const attachments=getAttachStage('task');
   const reminders=taskReminderDraft.map(r=>({id:r.id,value:r.value,unit:r.unit}));
   const syncCal=document.getElementById('task-sync-cal').checked;
-  const repeat=document.getElementById('task-repeat')?document.getElementById('task-repeat').value:'none';
-  if(repeat!=='none'&&!due){toast('Set a due date to use Repeat');return;}
-  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;t.attachments=attachments;t.reminders=reminders;t.syncCal=syncCal;t.repeat=repeat;}}
-  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr(),attachments,reminders,syncCal,repeat});}
+  if(editingTaskId){const t=storage.todos.find(x=>x.id===editingTaskId);if(t){t.text=text;t.due=due;t.priority=priority;t.tags=tags;t.attachments=attachments;t.reminders=reminders;t.syncCal=syncCal;}}
+  else{storage.todos.push({id:uuid(),text,due,priority,tags,done:false,created:todayStr(),attachments,reminders,syncCal});}
   closeModal('modal-task');renderTasks();renderCalHighlights();saveToDrive();
   scheduleGCalSync(); // pick up a newly ticked/unticked sync flag right away, not just on the next unrelated save
 }
@@ -6677,28 +6675,40 @@ function markNbDirty(){
 async function saveNbPageToDrive(){
   if(!nbDirty)return;
   flushNbPageToMemory();
+  dirty=true; // prevent auto-sync from pulling while we save
   renderNotebooks();
-  await saveToDrive();
-  nbDirty=false;
-  const st=document.getElementById('nb-save-status');if(st)st.textContent='Saved';
+  try{
+    await saveToDrive();
+    nbDirty=false;
+    const st=document.getElementById('nb-save-status');if(st)st.textContent='Saved';
+  }catch(e){
+    const st=document.getElementById('nb-save-status');if(st)st.textContent='⚠ Save failed';
+    toast('❌ Notebook save failed: '+e.message);
+  }
 }
 // Explicit Save button — flush + sync immediately, then close
 async function submitNbPage(){
   clearTimeout(nbAutoSaveTimer);
   flushNbPageToMemory();
+  dirty=true;
   closeModal('modal-nb-page');
   renderNotebooks();
-  await saveToDrive();
-  nbDirty=false;
-  toast('📄 Page saved');
+  try{
+    await saveToDrive();
+    nbDirty=false;
+    toast('📄 Page saved');
+  }catch(e){
+    toast('❌ Save failed — will retry: '+e.message);
+  }
 }
 // Back arrow — flush any pending edits (in case within the debounce window) before leaving
 async function closeNbPageEditor(){
   clearTimeout(nbAutoSaveTimer);
   if(nbDirty){
     flushNbPageToMemory();
+    dirty=true;
     renderNotebooks();
-    await saveToDrive();
+    try{await saveToDrive();}catch(e){toast('❌ Save failed — will retry on next sync');}
     nbDirty=false;
   }
   closeModal('modal-nb-page');
