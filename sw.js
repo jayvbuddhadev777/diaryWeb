@@ -1,7 +1,7 @@
 // Secure Diary — Service Worker
 // Caches the app shell so it works offline after first load.
 
-const CACHE = 'secure-diary-v15';
+const CACHE = 'secure-diary-v16';
 
 // Files to cache on install (the app shell)
 const SHELL = [
@@ -14,7 +14,15 @@ const SHELL = [
 
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE).then(c =>
+      // addAll() fails the whole install if a single resource 404s or a CDN is
+      // briefly unreachable — and a failed install means the SW never activates,
+      // so the app never gets offline support at all. Cache each file individually
+      // and don't let one bad fetch take down the rest of the shell.
+      Promise.all(SHELL.map(url =>
+        c.add(url).catch(err => console.warn('[sw] shell cache miss:', url, err))
+      ))
+    ).then(() => self.skipWaiting())
   );
 });
 
@@ -40,7 +48,26 @@ self.addEventListener('fetch', e => {
     return; // bypass SW
   }
 
-  // Cache-first for everything else (app shell, fonts, MSAL lib)
+  // Navigations and the app HTML itself go network-first: if you ship a fix,
+  // people online should actually get it instead of being stuck on whatever
+  // was cached at first install. Offline (or a slow/broken network), fall
+  // straight back to the cached shell so the app still opens.
+  if (e.request.mode === 'navigate' || url.pathname.endsWith('/index.html')) {
+    e.respondWith(
+      fetch(e.request).then(response => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return response;
+      }).catch(() =>
+        caches.match(e.request).then(cached => cached || caches.match('/index.html'))
+      )
+    );
+    return;
+  }
+
+  // Cache-first for everything else (fonts, MSAL lib, other static assets)
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
@@ -52,10 +79,11 @@ self.addEventListener('fetch', e => {
         }
         return response;
       }).catch(() => {
-        // If network fails and it's a navigation, serve index.html
-        if (e.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
+        // Network failed and nothing cached for this request. Returning
+        // undefined here would make respondWith() throw ("no Response"),
+        // which shows up as a console error and can break the calling code's
+        // error handling. A real (if useless) Response is safer.
+        return new Response('', { status: 504, statusText: 'Offline' });
       });
     })
   );

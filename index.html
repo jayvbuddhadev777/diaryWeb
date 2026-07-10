@@ -1405,7 +1405,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <!-- TASKS -->
       <div class="panel" id="panel-tasks">
         <div class="stats-row" id="task-stats"></div>
-        <input type="text" class="form-input" id="task-search" placeholder="🔍 Search tasks…" oninput="renderTasks()" style="margin-bottom:8px"/>
+        <input type="text" class="form-input" id="task-search" placeholder="🔍 Search tasks…" oninput="debounceCall(this,renderTasks)" style="margin-bottom:8px"/>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
           <div class="filter-pills" style="flex:1">
             <div class="pill active" onclick="setTaskFilter('all',this)">All</div>
@@ -1414,6 +1414,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             <div class="pill" onclick="setTaskFilter('overdue',this)">⚠ Overdue</div>
           </div>
           <button class="btn btn-secondary btn-sm" id="task-select-btn" onclick="toggleTaskSelectMode()" style="width:auto;padding:7px 10px;font-size:12px">☑ Select</button>
+          <button class="btn btn-secondary btn-sm" id="task-sort-btn" onclick="toggleTaskSortDir()" title="Sort by due date" style="width:auto;padding:7px 10px;font-size:12px">📅 ↓</button>
         </div>
         <div id="task-select-bar" style="display:none;align-items:center;gap:8px;padding:8px 12px;background:var(--danger-light);border:1px solid var(--danger);border-radius:var(--radius);margin-bottom:8px">
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer">
@@ -1442,7 +1443,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
           <button class="btn btn-danger btn-sm" onclick="deleteSelectedChecklists()" style="width:auto;padding:7px 12px;font-size:12px">🗑 Delete</button>
           <button class="btn btn-secondary btn-sm" onclick="toggleCLSelectMode()" style="width:auto;padding:7px 12px;font-size:12px">Cancel</button>
         </div>
-        <input type="text" class="form-input" id="cl-search" placeholder="🔍 Search checklists & items…" oninput="renderChecklists()" style="margin:8px 0"/>
+        <input type="text" class="form-input" id="cl-search" placeholder="🔍 Search checklists & items…" oninput="debounceCall(this,renderChecklists)" style="margin:8px 0"/>
         <div id="checklists-container" style="display:flex;flex-direction:column;gap:12px"></div>
       </div>
 
@@ -1456,7 +1457,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         </div>
         <!-- LIST VIEW -->
         <div id="exp-view-list">
-          <input type="text" class="form-input" id="exp-search" placeholder="🔍 Search expenses (note, category, mode, account)…" oninput="renderExpenses()" style="margin-bottom:8px"/>
+          <input type="text" class="form-input" id="exp-search" placeholder="🔍 Search expenses (note, category, mode, account)…" oninput="debounceCall(this,renderExpenses)" style="margin-bottom:8px"/>
           <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:4px" class="filter-pills">
             <div style="flex:1;min-width:130px">
               <div class="form-label" style="font-size:10px">From</div>
@@ -1468,7 +1469,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             </div>
             <div style="flex:1;min-width:130px">
               <div class="form-label" style="font-size:10px">Category</div>
-              <input type="text" class="form-input" id="exp-cat-filter" placeholder="All" style="padding:8px 10px;font-size:13px;width:100%" oninput="renderExpenses()"/>
+              <input type="text" class="form-input" id="exp-cat-filter" placeholder="All" style="padding:8px 10px;font-size:13px;width:100%" oninput="debounceCall(this,renderExpenses)"/>
             </div>
           </div>
           <input type="file" id="expense-json-input" accept="application/json,.json" style="display:none" onchange="handleExpenseImportJSON(this)"/>
@@ -1476,7 +1477,6 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('expense-json-input').click()">⬆ Import JSON</button>
             <button class="btn btn-secondary btn-sm" onclick="exportExpensesJSON()">⬇ Export JSON</button>
             <button class="btn btn-secondary btn-sm" onclick="exportExpenseCSV()">⬇ Export CSV</button>
-            <button class="btn btn-secondary btn-sm" onclick="fixImportedExpenseSigns()" title="Corrects entries already sitting here from an import done before the sign fix">🛠 Fix income/expense</button>
             <button class="btn btn-danger btn-sm" onclick="deleteAllExpenses()" title="Delete ALL expenses permanently">🗑 Delete All</button>
           </div>
           <div id="exp-list" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -1520,6 +1520,17 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
                 <option value="month">Month</option>
               </select>
             </div>
+            <div style="flex:1;min-width:130px">
+              <div class="form-label" style="font-size:10px">Then Sub-group By</div>
+              <select class="form-input" id="rep-subgroupby" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()">
+                <option value="">— None —</option>
+                <option value="category">Category</option>
+                <option value="account">Account</option>
+                <option value="mode">Payment Mode</option>
+                <option value="date">Date (day)</option>
+                <option value="month">Month</option>
+              </select>
+            </div>
           </div>
           <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
             <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">⬇ CSV</button>
@@ -1552,7 +1563,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 
       <!-- CONTACTS -->
       <div class="panel" id="panel-contacts">
-        <input type="text" class="form-input" id="contact-search" placeholder="🔍 Search contacts…" oninput="renderContacts()"/>
+        <input type="text" class="form-input" id="contact-search" placeholder="🔍 Search contacts…" oninput="debounceCall(this,renderContacts)"/>
         <div id="contact-search-scope" style="display:flex;gap:6px;overflow-x:auto;padding:6px 2px 8px;flex-shrink:0">
           <div class="pill active" data-field="all" onclick="setContactSearchField('all',this)">All</div>
           <div class="pill" data-field="name" onclick="setContactSearchField('name',this)">Name</div>
@@ -1571,14 +1582,14 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 
       <!-- STICKY NOTES -->
       <div class="panel" id="panel-notes">
-        <input type="text" class="form-input" id="note-search" placeholder="🔍 Search notes…" oninput="renderNotes()" style="margin-bottom:8px"/>
+        <input type="text" class="form-input" id="note-search" placeholder="🔍 Search notes…" oninput="debounceCall(this,renderNotes)" style="margin-bottom:8px"/>
         <div class="notes-grid" id="notes-grid"></div>
       </div>
 
       <!-- NOTEBOOKS -->
       <div class="panel" id="panel-notebook">
         <button class="btn btn-secondary" onclick="openNewNotebookModal()" style="margin-bottom:0">＋ New Notebook</button>
-        <input type="text" class="form-input" id="nb-search" placeholder="🔍 Search notebooks & pages…" oninput="renderNotebooks()" style="margin:8px 0"/>
+        <input type="text" class="form-input" id="nb-search" placeholder="🔍 Search notebooks & pages…" oninput="debounceCall(this,renderNotebooks)" style="margin:8px 0"/>
         <div id="notebook-list" style="display:flex;flex-direction:column;gap:10px"></div>
       </div>
 
@@ -1597,7 +1608,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 
         <!-- BOARD VIEW (default) -->
         <div id="pv-board" style="display:flex;flex-direction:column;gap:10px">
-          <input type="text" class="form-input" id="proj-search" placeholder="🔍 Search projects & tasks…" oninput="renderProjects()"/>
+          <input type="text" class="form-input" id="proj-search" placeholder="🔍 Search projects & tasks…" oninput="debounceCall(this,renderProjects)"/>
           <!-- Priority filter -->
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
             <div class="pill active" id="pf-all"    onclick="setProjFilter('all',this)">All</div>
@@ -1674,7 +1685,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 
           <!-- Search input row -->
           <div style="position:relative">
-            <input type="text" class="form-input" id="panel-search-input" placeholder='🔍 Search… use "quotes" for exact phrase' oninput="performPanelSearch()" style="font-size:15px;padding-right:44px"/>
+            <input type="text" class="form-input" id="panel-search-input" placeholder='🔍 Search… use "quotes" for exact phrase' oninput="debounceCall(this,performPanelSearch)" style="font-size:15px;padding-right:44px"/>
             <button id="search-clear-btn" onclick="clearPanelSearch()" style="display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);background:var(--border);border:none;border-radius:50%;width:24px;height:24px;font-size:13px;cursor:pointer;color:var(--text-muted);line-height:1">✕</button>
           </div>
 
@@ -1752,12 +1763,16 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         <div style="position:sticky;top:0;background:var(--bg);z-index:10;padding-bottom:8px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
             <button class="btn btn-secondary btn-sm" onclick="calPanelPrev()">‹ Prev</button>
-            <span id="cal-panel-month-label" style="font-family:'Fraunces',serif;font-weight:700;font-size:17px;color:var(--primary)"></span>
+            <span id="cal-panel-month-label" onclick="document.getElementById('cal-jump-date').showPicker?document.getElementById('cal-jump-date').showPicker():document.getElementById('cal-jump-date').focus()" style="font-family:'Fraunces',serif;font-weight:700;font-size:17px;color:var(--primary);cursor:pointer" title="Tap to jump to a date"></span>
             <button class="btn btn-secondary btn-sm" onclick="calPanelNext()">Next ›</button>
           </div>
-          <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <input type="date" id="cal-jump-date" class="form-input" style="padding:6px 10px;font-size:12px;width:auto" onchange="calJumpToDate(this.value)"/>
+              <button class="btn btn-secondary btn-sm" onclick="calJumpToToday()" style="padding:6px 10px;font-size:11px;width:auto">Today</button>
+            </div>
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;user-select:none">
-              💰 Show Expenses
+              💰 Expenses
               <input type="checkbox" id="cal-show-expenses" onchange="calShowExpToggle()" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer"/>
             </label>
           </div>
@@ -2569,7 +2584,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   <div class="modal">
     <div class="modal-handle"></div>
     <h2>🔍 Search</h2>
-    <div class="form-group"><input type="text" class="form-input" id="search-input" placeholder="Search everything…" oninput="performSearch()"/></div>
+    <div class="form-group"><input type="text" class="form-input" id="search-input" placeholder="Search everything…" oninput="debounceCall(this,performSearch)"/></div>
     <div id="search-results-modal" style="display:flex;flex-direction:column;gap:8px;max-height:50dvh;overflow-y:auto"></div>
   </div>
 </div>
@@ -2875,10 +2890,21 @@ const OD_SCOPES = ['Files.ReadWrite.AppFolder','User.Read'];
 
 // ── utils ──
 function uuid(){return([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));}
-function todayStr(){return new Date().toISOString().slice(0,10);}
+// Formats a Date using its LOCAL year/month/day — NOT toISOString(), which
+// converts to UTC first. For any positive-offset timezone (like IST, UTC+5:30),
+// a Date built from local y/m/d at midnight is 18:30 UTC the *previous* day, so
+// .toISOString().slice(0,10) silently returns yesterday's date. That bug used to
+// exist all over date-range and chart code here; this is the one correct way to
+// turn a Date into a calendar-date string.
+function localISO(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function todayStr(){return localISO(new Date());}
 function fmtDate(d){if(!d)return'';const dt=typeof d==='string'?new Date(d+'T00:00:00'):d;return dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});}
 function escH(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function toast(msg,dur=2400){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),dur);}
+// Tiny debounce for search/filter inputs — avoids re-scanning + re-rendering the
+// whole list on every single keystroke when there are lots of items to search over.
+// Timer lives on the element itself so each input debounces independently.
+function debounceCall(el,fn,wait){clearTimeout(el._dbTimer);el._dbTimer=setTimeout(fn,wait||150);}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 function openModal(id){document.getElementById(id).classList.add('open');}
 
@@ -2913,7 +2939,7 @@ let msalApp=null,accessToken=null,userProfile=null;
 let driveFiles=[],selectedDriveFile=null,driveFileId=null;
 let currentDiaryName=null,currentPassword=null,storage=null;
 let currentDate=todayStr(),calViewDate=new Date();
-let dirty=false,autoSaveTimer=null,taskFilter='all',_savingNow=false;
+let dirty=false,autoSaveTimer=null,taskFilter='all',_savingNow=false,taskSortDir='desc';
 // Auto-sync / conflict / idle-lock state
 let lastKnownRemoteModified=null; // ISO timestamp of the remote .enc file as of our last load/save
 const AUTO_SYNC_MS=15000;         // background sync-poll cadence (push pending edits / pull remote changes)
@@ -3544,7 +3570,7 @@ function renderAttachUI(key){
   const list=attachStage[key]||[];
   box.innerHTML = list.map(a=>`
     <div class="attach-thumb" onclick="viewAttachment('${key}','${a.id}')" title="${escH(a.name)}">
-      ${a.mime==='application/pdf'?'<span class="attach-pdf-ico">📄</span>':`<img src="${a.dataUrl}"/>`}
+      ${a.mime==='application/pdf'?'<span class="attach-pdf-ico">📄</span>':`<img src="${a.dataUrl}" loading="lazy" decoding="async"/>`}
       <span class="attach-name">${escH(a.name)}</span>
       <span class="attach-dl" onclick="event.stopPropagation();downloadAttachById('${key}','${a.id}')" title="Download">⬇</span>
       <span class="attach-rm" onclick="event.stopPropagation();removeAttach('${key}','${a.id}')">✕</span>
@@ -3705,16 +3731,38 @@ function downloadAttachment(a){
   document.body.removeChild(link);
 }
 
+// Converts a (possibly huge) base64 data URL into a Blob URL and opens/downloads
+// it. Mobile browsers are unreliable at rendering PDFs embedded via <iframe
+// src="data:..."> — especially several at once in the same popup — so PDFs
+// always go through here to open in their own tab using the OS/browser's
+// native PDF viewer instead.
+function openDataUrlAsBlob(dataUrl,name,forceDownload){
+  // window.open must happen synchronously inside the click handler or Safari's
+  // popup blocker kills it — open a blank tab now, then redirect it once the
+  // blob is ready.
+  const w=forceDownload?null:window.open('','_blank');
+  fetch(dataUrl).then(r=>r.blob()).then(blob=>{
+    const url=URL.createObjectURL(blob);
+    if(forceDownload||!w){
+      const a=document.createElement('a');a.href=url;a.download=name||'attachment';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+    } else {
+      w.location.href=url;
+    }
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }).catch(()=>{
+    if(w)w.close();
+    toast('❌ Could not open '+(name||'file'));
+  });
+}
+
 function viewAttachment(key,id){
   const a=(attachStage[key]||[]).find(x=>x.id===id); if(!a) return;
+  if(a.mime==='application/pdf'){ openDataUrlAsBlob(a.dataUrl,a.name); return; }
   const w=window.open('about:blank');
   if(!w){toast('⚠️ Allow popups to view attachment');return;}
   const safeName=escH(a.name);
-  if(a.mime==='application/pdf'){
-    w.document.write(`<title>${safeName}</title><body style="margin:0"><iframe src="${a.dataUrl}" style="border:none;width:100vw;height:100vh"></iframe></body>`);
-  } else {
-    w.document.write(`<title>${safeName}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${a.dataUrl}" style="max-width:100%;max-height:100vh"/></body>`);
-  }
+  w.document.write(`<title>${safeName}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${a.dataUrl}" style="max-width:100%;max-height:100vh"/></body>`);
   // Inject download link after write
   const dl=w.document.createElement('a');
   dl.href=a.dataUrl;dl.download=a.name||'attachment';
@@ -3729,20 +3777,48 @@ function renderAttachBadge(list){
 }
 
 // Quick read-only gallery for an already-saved attachments array (used from list views).
+// PDFs open via a button into their own tab (using the popup's own blob-URL
+// conversion) rather than being embedded as <iframe src="data:..."> — mobile
+// browsers are unreliable at rendering PDF iframes at all, and especially so
+// with more than one in the same page, which is exactly the "PDFs won't open"
+// symptom this fixes.
 function viewSavedAttachments(list){
   if(!list||!list.length){toast('No attachments');return;}
   const w=window.open('about:blank');
   if(!w){toast('⚠️ Allow popups to view attachments');return;}
   const body=list.map((a,i)=>{
     const safeName=escH(a.name||'attachment-'+(i+1));
-    const dlBtnHtml=`<a href="${a.dataUrl}" download="${safeName}" style="display:inline-block;margin-left:10px;background:#1a3a6b;color:#fff;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;font-family:sans-serif">⬇ Download</a>`;
     if(a.mime==='application/pdf'){
-      return `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:6px">📄 ${safeName}${dlBtnHtml}</div><iframe src="${a.dataUrl}" style="width:100%;height:80vh;border:1px solid #333;border-radius:6px"></iframe></div>`;
+      return `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:10px">📄 ${safeName}</div>
+        <button onclick="openPdfBlob(${i})" style="background:#1a3a6b;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:sans-serif">📄 Open PDF</button>
+        <button onclick="downloadBlob(${i})" style="margin-left:10px;background:#00897b;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:sans-serif">⬇ Download</button>
+      </div>`;
     }
-    return `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:6px">🖼️ ${safeName}${dlBtnHtml}</div><img src="${a.dataUrl}" style="max-width:100%;border-radius:6px"/></div>`;
+    return `<div style="margin-bottom:18px"><div style="color:#fff;font-family:sans-serif;font-size:13px;margin-bottom:6px">🖼️ ${safeName}<button onclick="downloadBlob(${i})" style="display:inline-block;margin-left:10px;background:#1a3a6b;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:sans-serif">⬇ Download</button></div><img src="${a.dataUrl}" style="max-width:100%;border-radius:6px"/></div>`;
   }).join('');
-  const dlAllBtn=list.length>1?`<div style="text-align:center;margin-bottom:18px"><button onclick="document.querySelectorAll('a[download]').forEach(a=>a.click())" style="background:#00897b;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:sans-serif">⬇ Download All (${list.length})</button></div>`:'';
+  const dlAllBtn=list.length>1?`<div style="text-align:center;margin-bottom:18px"><button onclick="downloadAllBlobs()" style="background:#00897b;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:sans-serif">⬇ Download All (${list.length})</button></div>`:'';
   w.document.write(`<title>Attachments (${list.length})</title><body style="margin:0;padding:18px;background:#111">${dlAllBtn}${body}</body>`);
+  // Give the popup its own copy of the attachment data plus the blob helpers —
+  // it can't reach back into this window's closures, so these need to live there.
+  const script=w.document.createElement('script');
+  script.textContent=`
+    window._atts=${JSON.stringify(list.map(a=>({dataUrl:a.dataUrl,name:a.name,mime:a.mime})))};
+    function _toBlobUrl(i){return fetch(window._atts[i].dataUrl).then(r=>r.blob()).then(b=>URL.createObjectURL(b));}
+    function openPdfBlob(i){
+      const w2=window.open('','_blank'); // open synchronously so mobile Safari doesn't block it
+      _toBlobUrl(i).then(url=>{ if(w2)w2.location.href=url; else { const a=document.createElement('a');a.href=url;a.download=window._atts[i].name||'document.pdf';a.click(); } })
+        .catch(()=>{ if(w2)w2.close(); alert('Could not open this PDF'); });
+    }
+    function downloadBlob(i){
+      _toBlobUrl(i).then(url=>{
+        const a=document.createElement('a');a.href=url;a.download=window._atts[i].name||'attachment';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+        setTimeout(()=>URL.revokeObjectURL(url),30000);
+      }).catch(()=>alert('Could not download this file'));
+    }
+    function downloadAllBlobs(){ window._atts.forEach((_,i)=>setTimeout(()=>downloadBlob(i),i*300)); }
+  `;
+  w.document.body.appendChild(script);
 }
 
 // ── ATTACHMENT GALLERY (browse every attachment across the whole diary) ──
@@ -3761,20 +3837,41 @@ function collectAllAttachments(){
   return out.filter(x=>x.att&&x.att.dataUrl).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 }
 function setGalleryFilter(f,el){galleryFilter=f;document.querySelectorAll('#gallery-type-pills .pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderGallery();}
+function galleryItemHTML(x,i){
+  return `<div title="${escH(x.att.name)}" style="cursor:pointer;border-radius:var(--radius-sm);overflow:hidden;background:var(--surface2);border:1px solid var(--border);aspect-ratio:1;display:flex;align-items:center;justify-content:center;position:relative">
+      <div onclick="viewGalleryItem(${i})" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+        ${x.att.mime==='application/pdf'?'<span style="font-size:26px">📄</span>':`<img src="${x.att.dataUrl}" style="width:100%;height:100%;object-fit:cover" loading="lazy" decoding="async"/>`}
+      </div>
+      <span onclick="event.stopPropagation();downloadGalleryItem(${i})" title="Download" style="position:absolute;top:4px;right:4px;background:var(--primary);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px;line-height:22px;text-align:center;cursor:pointer;z-index:2;box-shadow:0 1px 4px rgba(0,0,0,0.3)">⬇</span>
+      <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.55);color:#fff;font-size:9.5px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(x.label)}</div>
+    </div>`;
+}
 function renderGallery(){
   const grid=document.getElementById('gallery-grid');if(!grid||!storage)return;
   let items=collectAllAttachments();
   if(galleryFilter!=='all')items=items.filter(x=>x.type===galleryFilter);
-  if(!items.length){grid.innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="empty-icon">🖼</div><p>No attachments yet</p></div>`;return;}
-  grid.innerHTML=items.map((x,i)=>`
-    <div title="${escH(x.att.name)}" style="cursor:pointer;border-radius:var(--radius-sm);overflow:hidden;background:var(--surface2);border:1px solid var(--border);aspect-ratio:1;display:flex;align-items:center;justify-content:center;position:relative">
-      <div onclick="viewGalleryItem(${i})" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
-        ${x.att.mime==='application/pdf'?'<span style="font-size:26px">📄</span>':`<img src="${x.att.dataUrl}" style="width:100%;height:100%;object-fit:cover"/>`}
-      </div>
-      <span onclick="event.stopPropagation();downloadGalleryItem(${i})" title="Download" style="position:absolute;top:4px;right:4px;background:var(--primary);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px;line-height:22px;text-align:center;cursor:pointer;z-index:2;box-shadow:0 1px 4px rgba(0,0,0,0.3)">⬇</span>
-      <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.55);color:#fff;font-size:9.5px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(x.label)}</div>
-    </div>`).join('');
   window._galleryItems=items;
+  window._galleryRenderToken=(window._galleryRenderToken||0)+1;
+  const myToken=window._galleryRenderToken;
+  if(!items.length){grid.innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="empty-icon">🖼</div><p>No attachments yet</p></div>`;return;}
+  // Large galleries (lots of entries/attachments) build hundreds of DOM nodes —
+  // doing that in one synchronous pass blocks the main thread and feels janky.
+  // Render the first screenful immediately, then stream the rest in in small
+  // batches across animation frames so scrolling/tapping stays responsive.
+  const BATCH=40;
+  grid.innerHTML=items.slice(0,BATCH).map((x,i)=>galleryItemHTML(x,i)).join('');
+  let next=BATCH;
+  function renderMore(){
+    if(myToken!==window._galleryRenderToken)return; // filter changed / gallery re-rendered — abandon stale batch
+    if(next>=items.length)return;
+    const chunk=items.slice(next,next+BATCH);
+    const frag=document.createElement('div');
+    frag.innerHTML=chunk.map((x,i)=>galleryItemHTML(x,next+i)).join('');
+    while(frag.firstChild)grid.appendChild(frag.firstChild);
+    next+=BATCH;
+    requestAnimationFrame(renderMore);
+  }
+  if(next<items.length)requestAnimationFrame(renderMore);
 }
 function viewGalleryItem(i){const items=window._galleryItems||[];const x=items[i];if(!x)return;viewSavedAttachments([x.att]);}
 function downloadGalleryItem(i){const items=window._galleryItems||[];const x=items[i];if(!x)return;downloadAttachment(x.att);}
@@ -4207,7 +4304,7 @@ function loadFromLocalStorage(){ return null; }
 
 async function saveEntryAndDrive(){saveEntryInMemory();await saveToDrive();}
 function parseTagsInput(val){return (val||'').split(',').map(t=>t.trim()).filter(Boolean);}
-function saveEntryInMemory(){
+function saveEntryInMemory(skipCalRefresh){
   const editorEl=document.getElementById('diary-editor');
   stripHighlightMarks(editorEl); // never persist search-highlight <mark> tags
   const h=editorEl.innerHTML.trim();
@@ -4225,7 +4322,11 @@ function saveEntryInMemory(){
   }else{
     delete storage.entries[currentDate];
   }
-  renderCalHighlights();
+  // Rebuilding the calendar grid re-scans every task/reminder for every day in the
+  // month, which is real work — skip it on the hot per-keystroke path (markDirty)
+  // and let that path debounce its own lightweight refresh instead. Every other
+  // caller (save, lock, date-switch) still gets an immediate, accurate refresh.
+  if(!skipCalRefresh)renderCalHighlights();
 }
 // ── MANUAL REFRESH (header button) ──
 // Mobile browsers often hide the page-reload control, so this gives an explicit way
@@ -4259,7 +4360,13 @@ async function manualRefresh(){
   }
 }
 
-function markDirty(){dirty=true;document.getElementById('save-status').textContent='Unsaved…';saveEntryInMemory();resetIdleLockTimer();clearTimeout(autoSaveTimer);autoSaveTimer=setTimeout(saveEntryAndDrive,5000);}
+function markDirty(){
+  dirty=true;document.getElementById('save-status').textContent='Unsaved…';
+  saveEntryInMemory(true); // true = skip the calendar rebuild here; typing shouldn't pay for it on every keystroke
+  resetIdleLockTimer();
+  clearTimeout(autoSaveTimer);autoSaveTimer=setTimeout(saveEntryAndDrive,5000);
+  clearTimeout(window._calRefreshTimer);window._calRefreshTimer=setTimeout(renderCalHighlights,400);
+}
 
 // ── AUTO-SYNC ──
 // Two jobs, checked every AUTO_SYNC_MS:
@@ -5249,11 +5356,18 @@ function renderCal(){
   const dows=['S','M','T','W','T','F','S'];
   let html=dows.map(d=>`<div class="cal-dow">${d}</div>`).join('');
   const first=new Date(y,m,1).getDay(),days=new Date(y,m+1,0).getDate(),today=todayStr();
+  // Build the set of reminder dates once (was previously re-scanning every task's
+  // every reminder for every single day of the month — O(days × tasks × reminders)).
+  const reminderDates=new Set();
+  (storage&&storage.todos||[]).forEach(t=>{
+    if(t.done||!t.due)return;
+    (t.reminders||[]).forEach(r=>{const rd=computeReminderDate(t.due,r.value,r.unit);if(rd)reminderDates.add(rd);});
+  });
   for(let i=0;i<first;i++)html+=`<div></div>`;
   for(let d=1;d<=days;d++){
     const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const hasEntry=storage&&storage.entries&&storage.entries[ds];
-    const hasReminder=(storage&&storage.todos||[]).some(t=>!t.done&&t.due&&(t.reminders||[]).some(r=>computeReminderDate(t.due,r.value,r.unit)===ds));
+    const hasReminder=reminderDates.has(ds);
     const cls=['cal-day',ds===today?'today':'',ds===currentDate?'selected':'',hasEntry?'has-entry':'',hasReminder?'has-reminder':''].filter(Boolean).join(' ');
     html+=`<div class="${cls}" onclick="jumpToDate('${ds}')">${d}</div>`;
   }
@@ -5395,6 +5509,22 @@ function renderCalPanel(){
 
 function calPanelPrev(){calPanelDate.setMonth(calPanelDate.getMonth()-1);renderCalPanel();}
 function calPanelNext(){calPanelDate.setMonth(calPanelDate.getMonth()+1);renderCalPanel();}
+function calJumpToDate(ds){
+  if(!ds)return;
+  const d=new Date(ds+'T00:00:00');
+  calPanelDate=new Date(d.getFullYear(),d.getMonth(),1);
+  calPanelSelected=ds;
+  renderCalPanel();
+  document.getElementById('cal-jump-date').value=ds;
+}
+function calJumpToToday(){
+  const ds=todayStr();
+  const now=new Date();
+  calPanelDate=new Date(now.getFullYear(),now.getMonth(),1);
+  calPanelSelected=ds;
+  renderCalPanel();
+  document.getElementById('cal-jump-date').value=ds;
+}
 
 function calPanelSelectDay(ds){
   calPanelSelected=ds;
@@ -5645,6 +5775,12 @@ function renderTasks(){
   if(taskFilter==='overdue')list=tasks.filter(t=>!t.done&&t.due&&t.due<today);
   const tq=(document.getElementById('task-search')?.value||'').toLowerCase().trim();
   if(tq)list=list.filter(t=>(t.text||'').toLowerCase().includes(tq)||(t.tags||[]).some(g=>g.toLowerCase().includes(tq)));
+  list=list.slice().sort((a,b)=>{
+    if(!a.due&&!b.due)return 0;
+    if(!a.due)return 1; // undated tasks always sink to the bottom, either direction
+    if(!b.due)return -1;
+    return taskSortDir==='asc'?a.due.localeCompare(b.due):b.due.localeCompare(a.due);
+  });
   const pMap={high:'🔴',med:'🟡',low:'🟢',normal:''};
   document.getElementById('task-list').innerHTML=list.length?list.map(t=>`
     <div class="card" id="task-${t.id}" style="display:flex;align-items:flex-start;gap:12px;${t.done?'opacity:0.55':''}">
@@ -5664,6 +5800,11 @@ function renderTasks(){
   const nd=document.getElementById('nd-tasks');if(nd)nd.classList.toggle('show',stats.overdue>0);
 }
 function setTaskFilter(f,el){taskFilter=f;document.querySelectorAll('#panel-tasks .pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');renderTasks();}
+function toggleTaskSortDir(){
+  taskSortDir=taskSortDir==='desc'?'asc':'desc';
+  const btn=document.getElementById('task-sort-btn');if(btn)btn.textContent=taskSortDir==='desc'?'📅 ↓':'📅 ↑';
+  renderTasks();
+}
 function toggleTask(id){const t=storage.todos.find(x=>x.id===id);if(t){t.done=!t.done;vibrate(t.done?[10,30,10]:8);renderTasks();if(currentPanel==='diary')renderDueTasksWidget();saveToDrive();}}
 function editTask(id){const t=storage.todos.find(x=>x.id===id);if(!t)return;editingTaskId=id;document.getElementById('task-modal-title').textContent='✏️ Edit Task';document.getElementById('task-desc').value=t.text;document.getElementById('task-due').value=t.due||'';document.getElementById('task-priority').value=t.priority||'normal';document.getElementById('task-tags').value=(t.tags||[]).join(', ');document.getElementById('task-sync-cal').checked=(t.syncCal!==false);taskReminderDraft=(t.reminders||[]).map(r=>({id:r.id||uuid(),value:r.value,unit:r.unit}));renderTaskReminderChips();initAttachUI('task',t.attachments);openModal('modal-task');}
 async function deleteTask(id){if(!(await showConfirm('Delete task?')))return;storage.todos=storage.todos.filter(x=>x.id!==id);dirty=true;renderTasks();saveToDrive();}
@@ -5828,8 +5969,8 @@ function initExpDates(){
   const now=new Date();
   const y=now.getFullYear(),m=now.getMonth();
   const first=new Date(y,m,1),last=new Date(y,m+1,0);
-  fromEl.value=first.toISOString().slice(0,10);
-  toEl.value=last.toISOString().slice(0,10);
+  fromEl.value=localISO(first);
+  toEl.value=localISO(last);
   // Also reset report month/year to current month
   const monthSel=document.getElementById('rep-month');
   const yearSel=document.getElementById('rep-year');
@@ -5837,8 +5978,8 @@ function initExpDates(){
   if(yearSel)yearSel.value=String(y);
   // Reset range dates too
   const repFrom=document.getElementById('rep-from'),repTo=document.getElementById('rep-to');
-  if(repFrom)repFrom.value=first.toISOString().slice(0,10);
-  if(repTo)repTo.value=last.toISOString().slice(0,10);
+  if(repFrom)repFrom.value=localISO(first);
+  if(repTo)repTo.value=localISO(last);
 }
 
 function renderExpenses(){
@@ -6050,8 +6191,8 @@ function setReportMode(mode){
     if(fromEl&&toEl&&!fromEl.value&&!toEl.value){
       const now=new Date();
       const y=now.getFullYear(),m=now.getMonth();
-      fromEl.value=new Date(y,m,1).toISOString().slice(0,10);
-      toEl.value=new Date(y,m+1,0).toISOString().slice(0,10);
+      fromEl.value=localISO(new Date(y,m,1));
+      toEl.value=localISO(new Date(y,m+1,0));
     }
   }
   renderReport();
@@ -6132,11 +6273,46 @@ function renderReport(){
     return k;
   }
   document.getElementById('rep-chart-title').textContent='💰 Spending by '+GROUP_LABELS[groupBy];
-  document.getElementById('rep-table-title').textContent='📋 '+GROUP_LABELS[groupBy]+' Breakdown';
   _repFiltered=filtered;_repGroupKeyFor=groupKeyFor;_repGroupLabel=GROUP_LABELS[groupBy];
+
+  // Optional second-level grouping (multilevel report): e.g. group by Category,
+  // then sub-group each category's spend by Account/Mode/Date/Month.
+  const subGroupBy=document.getElementById('rep-subgroupby')?.value||'';
+  function subKeyFor(e){
+    if(subGroupBy==='account')return e.account||'—';
+    if(subGroupBy==='mode')return e.mode||'—';
+    if(subGroupBy==='date')return e.date;
+    if(subGroupBy==='month')return e.date?e.date.slice(0,7):'—';
+    if(subGroupBy==='category')return e.category||'Other';
+    return '';
+  }
+  function subKeyDisplay(k){
+    if(subGroupBy==='date')return fmtDate(k);
+    if(subGroupBy==='month'){const [y,m]=k.split('-');return new Date(y,m-1,1).toLocaleDateString('en-IN',{month:'short',year:'numeric'});}
+    return k;
+  }
+  if(document.getElementById('rep-table-title'))
+    document.getElementById('rep-table-title').textContent='📋 '+GROUP_LABELS[groupBy]+(subGroupBy?' → '+GROUP_LABELS[subGroupBy]+' Breakdown':' Breakdown');
+
   const catMap={};
   filtered.filter(e=>parseFloat(e.amount)<0).forEach(e=>{const c=groupKeyFor(e);catMap[c]=(catMap[c]||0)+Math.abs(parseFloat(e.amount)||0);});
   const catEntries=Object.entries(catMap).sort((a,b)=>groupBy==='date'||groupBy==='month'?a[0].localeCompare(b[0]):b[1]-a[1]);
+
+  // Nested breakdown: primaryKey -> [[subKeyDisplay, amount], ...] sorted desc
+  let nestedMap=null;
+  if(subGroupBy){
+    nestedMap={};
+    filtered.filter(e=>parseFloat(e.amount)<0).forEach(e=>{
+      const g=groupKeyFor(e), s=subKeyFor(e);
+      nestedMap[g]=nestedMap[g]||{};
+      nestedMap[g][s]=(nestedMap[g][s]||0)+Math.abs(parseFloat(e.amount)||0);
+    });
+    Object.keys(nestedMap).forEach(g=>{
+      nestedMap[g]=Object.entries(nestedMap[g])
+        .sort((a,b)=>subGroupBy==='date'||subGroupBy==='month'?a[0].localeCompare(b[0]):b[1]-a[1])
+        .map(([k,v])=>[subKeyDisplay(k),v]);
+    });
+  }
   const maxCat=catEntries.length?Math.max(...catEntries.map(e=>e[1])):1;
   const catColors=['#1a3a6b','#1565c0','#0097a7','#00897b','#558b2f','#f57f17','#e65100','#c62828','#6a1b9a','#4527a0'];
   document.getElementById('rep-cat-chart').innerHTML=catEntries.length?catEntries.map(([cat,amt],i)=>`
@@ -6160,20 +6336,34 @@ function renderReport(){
     const cursor=new Date(start);
     const bars=[];
     while(cursor<=end){
-      const ds=cursor.toISOString().slice(0,10);
+      const ds=localISO(cursor);
+      // Day-of-month label is parsed straight from `ds` (the same string used as the
+      // bucket key), never read off the mutating `cursor` object. This guarantees the
+      // bar's label can never drift a day off from the amount it's actually showing.
+      const dayNum=parseInt(ds.slice(8,10),10);
       const amt=dailyMap[ds]||0;
-      bars.push(`<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:18px;cursor:${amt>0?'pointer':'default'}" title="${fmtDate(ds)}: ₹${amt.toFixed(0)}${amt>0?' (double-click for details)':''}" ${amt>0?`ondblclick="showDayEntryDetails('${ds}')"`:''}><div style="width:14px;background:${amt>0?'var(--primary)':'var(--border)'};border-radius:3px 3px 0 0;height:${amt>0?Math.max(4,(amt/maxDay*80)).toFixed(0):2}px;transition:height 0.3s"></div><div style="font-size:8px;color:var(--text-muted)">${cursor.getDate()}</div></div>`);
+      bars.push(`<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:18px;cursor:${amt>0?'pointer':'default'}" title="${fmtDate(ds)}: ₹${amt.toFixed(0)}${amt>0?' (double-click for details)':''}" ${amt>0?`ondblclick="showDayEntryDetails('${ds}')"`:''}><div style="width:14px;background:${amt>0?'var(--primary)':'var(--border)'};border-radius:3px 3px 0 0;height:${amt>0?Math.max(4,(amt/maxDay*80)).toFixed(0):2}px;transition:height 0.3s"></div><div style="font-size:8px;color:var(--text-muted)">${dayNum}</div></div>`);
       cursor.setDate(cursor.getDate()+1);
     }
     dayBars=bars.join('');
   }
   document.getElementById('rep-daily-chart').innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;height:100px;padding:4px 0">${dayBars}</div>`;
 
-  // Group-by table
+  // Group-by table (with optional nested subgroup rows underneath each primary row)
   document.getElementById('rep-cat-table').innerHTML=catEntries.length?`
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 4px;color:var(--text-muted)">${escH(GROUP_LABELS[groupBy])}</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">Amount</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">%</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">#</th></tr></thead>
-      <tbody>${catEntries.map(([cat,amt])=>{const count=filtered.filter(e=>groupKeyFor(e)===cat&&parseFloat(e.amount)<0).length;return`<tr style="border-bottom:1px solid var(--border)"><td style="padding:7px 4px;font-weight:600">${escH(groupKeyDisplay(cat))}</td><td style="text-align:right;padding:7px 4px;color:var(--danger);font-family:monospace">₹${amt.toFixed(0)}</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${spent>0?(amt/spent*100).toFixed(1):0}%</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${count}</td></tr>`;}).join('')}</tbody>
+      <tbody>${catEntries.map(([cat,amt])=>{
+        const count=filtered.filter(e=>groupKeyFor(e)===cat&&parseFloat(e.amount)<0).length;
+        const mainRow=`<tr style="border-bottom:1px solid var(--border)"><td style="padding:7px 4px;font-weight:600">${escH(groupKeyDisplay(cat))}</td><td style="text-align:right;padding:7px 4px;color:var(--danger);font-family:monospace">₹${amt.toFixed(0)}</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${spent>0?(amt/spent*100).toFixed(1):0}%</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${count}</td></tr>`;
+        let subRows='';
+        if(nestedMap&&nestedMap[cat]){
+          subRows=nestedMap[cat].map(([sk,sv])=>
+            `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 4px 4px 20px;color:var(--text-muted);font-size:12px">↳ ${escH(sk)}</td><td style="text-align:right;padding:4px;color:var(--text-muted);font-family:monospace;font-size:12px">₹${sv.toFixed(0)}</td><td style="text-align:right;padding:4px;color:var(--text-muted);font-size:12px">${amt>0?(sv/amt*100).toFixed(1):0}%</td><td></td></tr>`
+          ).join('');
+        }
+        return mainRow+subRows;
+      }).join('')}</tbody>
     </table>`:'<div style="color:var(--text-muted);font-size:13px">No data</div>';
 
   // Individual transaction lines (respects all active filters)
@@ -6186,7 +6376,8 @@ function renderReport(){
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Category</th>
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Account</th>
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Mode</th>
-        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Note</th>
+        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Remark</th>
+        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Notes</th>
         <th style="text-align:right;padding:6px 4px;color:var(--text-muted)">Amount</th>
       </tr></thead>
       <tbody>${sortedTxns.map(e=>{const amt=parseFloat(e.amount)||0;return`<tr style="border-bottom:1px solid var(--border)">
@@ -6194,7 +6385,8 @@ function renderReport(){
         <td style="padding:6px 4px">${escH(e.category||'—')}</td>
         <td style="padding:6px 4px">${escH(e.account||'—')}</td>
         <td style="padding:6px 4px">${escH(e.mode||'—')}</td>
-        <td style="padding:6px 4px;max-width:220px;white-space:normal;word-break:break-word;color:var(--text-mid)">${escH(e.note||'—')}</td>
+        <td style="padding:6px 4px;max-width:180px;white-space:normal;word-break:break-word;color:var(--text-mid)">${escH(e.note||'—')}</td>
+        <td style="padding:6px 4px;max-width:180px;white-space:normal;word-break:break-word;color:var(--text-muted)">${escH(e.notes||'—')}</td>
         <td style="text-align:right;padding:6px 4px;font-family:monospace;font-weight:700;color:${amt>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(amt).toFixed(0)}</td>
       </tr>`;}).join('')}</tbody>
     </table>`:'<div style="color:var(--text-muted);font-size:13px">No transactions in this range</div>';
@@ -6205,14 +6397,28 @@ function renderReport(){
   window._reportGroupBy=groupBy;
   window._reportGroupEntries=catEntries.map(([k,v])=>[groupKeyDisplay(k),v]);
   window._reportGroupLabel=GROUP_LABELS[groupBy];
+  window._reportSubGroupBy=subGroupBy;
+  window._reportSubGroupLabel=subGroupBy?GROUP_LABELS[subGroupBy]:'';
+  // Nested map keyed by DISPLAY name of the primary group (matches _reportGroupEntries keys)
+  window._reportNestedMap=nestedMap?Object.fromEntries(catEntries.map(([k])=>[groupKeyDisplay(k),nestedMap[k]||[]])):null;
 }
 function exportReportCSV(){
   const exps=window._reportFiltered||[];
   if(!exps.length)return toast('No data in this report to export');
-  const rows=[['Date','Category','Amount','Mode','Account','Note']];
-  [...exps].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>rows.push([e.date,e.category||'',e.amount,e.mode||'',e.account||'',e.note||'']));
+  const rows=[['Date','Category','Amount','Mode','Account','Remark','Notes']];
+  [...exps].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>rows.push([e.date,e.category||'',e.amount,e.mode||'',e.account||'',e.note||'',e.notes||'']));
   const spent=exps.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+Math.abs(parseFloat(e.amount)||0),0);
   const income=exps.filter(e=>parseFloat(e.amount)>0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  // Multilevel group → subgroup breakdown, when a sub-group is selected
+  if(window._reportSubGroupBy&&window._reportNestedMap){
+    rows.push([]);
+    rows.push([window._reportGroupLabel||'Group',window._reportSubGroupLabel||'Sub-group','Amount']);
+    (window._reportGroupEntries||[]).forEach(([g])=>{
+      (window._reportNestedMap[g]||[]).forEach(([sk,sv])=>{
+        rows.push([g,sk,sv.toFixed(2)]);
+      });
+    });
+  }
   rows.push([]);
   rows.push(['Period',window._reportRangeLabel||'']);
   rows.push(['Total Income',income.toFixed(2)]);
@@ -6234,7 +6440,7 @@ function exportReportExcel(){
   // Sheet 1: individual transaction lines
   const txnRows=[...exps].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>({
     Date:e.date, Category:e.category||'', Account:e.account||'', Mode:e.mode||'',
-    Note:e.note||'', Amount:parseFloat(e.amount)||0
+    Remark:e.note||'', Notes:e.notes||'', Amount:parseFloat(e.amount)||0
   }));
   const wsTxns=XLSX.utils.json_to_sheet(txnRows);
 
@@ -6242,7 +6448,19 @@ function exportReportExcel(){
   const groupRows=(window._reportGroupEntries||[]).map(([k,v])=>({[window._reportGroupLabel||'Group']:k, Amount:v}));
   const wsGroup=XLSX.utils.json_to_sheet(groupRows);
 
-  // Sheet 3: summary
+  // Sheet 3 (optional): multilevel group → subgroup breakdown
+  let wsNested=null;
+  if(window._reportSubGroupBy&&window._reportNestedMap){
+    const nestedRows=[];
+    (window._reportGroupEntries||[]).forEach(([g])=>{
+      (window._reportNestedMap[g]||[]).forEach(([sk,sv])=>{
+        nestedRows.push({[window._reportGroupLabel||'Group']:g,[window._reportSubGroupLabel||'Sub-group']:sk,Amount:sv});
+      });
+    });
+    if(nestedRows.length)wsNested=XLSX.utils.json_to_sheet(nestedRows);
+  }
+
+  // Sheet 4: summary
   const wsSummary=XLSX.utils.json_to_sheet([
     {Field:'Period',Value:window._reportRangeLabel||''},
     {Field:'Total Income',Value:income},
@@ -6254,6 +6472,7 @@ function exportReportExcel(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,wsTxns,'Transactions');
   XLSX.utils.book_append_sheet(wb,wsGroup,(window._reportGroupLabel||'Group')+' Breakdown');
+  if(wsNested)XLSX.utils.book_append_sheet(wb,wsNested,(window._reportGroupLabel||'Group')+' x '+(window._reportSubGroupLabel||'Sub'));
   XLSX.utils.book_append_sheet(wb,wsSummary,'Summary');
   XLSX.writeFile(wb,(currentDiaryName||'diary')+'_report.xlsx');
   toast('📊 Excel report exported');
@@ -6268,12 +6487,15 @@ function exportReportPDF(){
   const sorted=[...exps].sort((a,b)=>a.date.localeCompare(b.date));
   const groupRows=window._reportGroupEntries||[];
   const groupLabel=window._reportGroupLabel||'Category';
+  const subGroupBy=window._reportSubGroupBy||'';
+  const subGroupLabel=window._reportSubGroupLabel||'';
+  const nestedMap=window._reportNestedMap||null;
 
   const win=window.open('','_blank');
   if(!win)return toast('❌ Pop-up blocked — allow pop-ups to export PDF');
   win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Expense Report</title>
   <style>
-    body{font-family:'DM Sans',Arial,sans-serif;color:#1a1f36;padding:24px;max-width:900px;margin:0 auto}
+    body{font-family:'DM Sans',Arial,sans-serif;color:#1a1f36;padding:24px;max-width:1050px;margin:0 auto}
     h1{font-family:Georgia,serif;font-size:22px;color:#1a3a6b;margin-bottom:2px}
     .sub{color:#7b82a0;font-size:13px;margin-bottom:20px}
     .stats{display:flex;gap:14px;margin-bottom:22px;flex-wrap:wrap}
@@ -6294,13 +6516,19 @@ function exportReportPDF(){
       <div class="stat"><b>₹${Math.abs(income-spent).toFixed(0)}</b>Net</div>
       <div class="stat"><b>${exps.length}</b>Entries</div>
     </div>
-    <h2>${escH(groupLabel)} Breakdown</h2>
+    <h2>${escH(groupLabel)}${subGroupBy?' → '+escH(subGroupLabel):''} Breakdown</h2>
     <table><thead><tr><th>${escH(groupLabel)}</th><th class="amt">Amount</th></tr></thead><tbody>
-      ${groupRows.map(([k,v])=>`<tr><td>${escH(k)}</td><td class="amt">₹${v.toFixed(0)}</td></tr>`).join('')}
+      ${groupRows.map(([k,v])=>{
+        const mainRow=`<tr><td>${escH(k)}</td><td class="amt">₹${v.toFixed(0)}</td></tr>`;
+        const subRows=(nestedMap&&nestedMap[k]?nestedMap[k]:[]).map(([sk,sv])=>
+          `<tr><td style="padding-left:24px;color:#7b82a0;font-size:11.5px">↳ ${escH(sk)}</td><td class="amt" style="color:#7b82a0;font-size:11.5px">₹${sv.toFixed(0)}</td></tr>`
+        ).join('');
+        return mainRow+subRows;
+      }).join('')}
     </tbody></table>
     <h2>Transaction Detail</h2>
-    <table><thead><tr><th>Date</th><th>Category</th><th>Account</th><th>Mode</th><th>Note</th><th class="amt">Amount</th></tr></thead><tbody>
-      ${sorted.map(e=>`<tr><td>${escH(fmtDate(e.date))}</td><td>${escH(e.category||'—')}</td><td>${escH(e.account||'—')}</td><td>${escH(e.mode||'—')}</td><td>${escH(e.note||'')}</td><td class="amt">₹${Math.abs(parseFloat(e.amount)||0).toFixed(0)}</td></tr>`).join('')}
+    <table><thead><tr><th>Date</th><th>Category</th><th>Account</th><th>Mode</th><th>Remark</th><th>Notes</th><th class="amt">Amount</th></tr></thead><tbody>
+      ${sorted.map(e=>`<tr><td>${escH(fmtDate(e.date))}</td><td>${escH(e.category||'—')}</td><td>${escH(e.account||'—')}</td><td>${escH(e.mode||'—')}</td><td style="max-width:150px;white-space:normal;word-break:break-word">${escH(e.note||'')}</td><td style="max-width:150px;white-space:normal;word-break:break-word">${escH(e.notes||'')}</td><td class="amt">₹${Math.abs(parseFloat(e.amount)||0).toFixed(0)}</td></tr>`).join('')}
     </tbody></table>
     <script>window.onload=()=>{window.print();};<\/script>
   </body></html>`);
@@ -6838,6 +7066,7 @@ function renderNotebooks(){
           <div style="font-size:11px;color:var(--primary);opacity:0.7">${pageCount} page${pageCount!==1?'s':''}${onlyPageMatches?' matching':''}</div>
         </div>
         <button class="icon-btn edit" onclick="event.stopPropagation();openNbSettings('${k}')" title="Settings" style="margin-right:4px">⚙️</button>
+        ${nb.locked&&!isLocked?`<button class="icon-btn" onclick="event.stopPropagation();relockNotebook('${k}')" title="Lock again" style="margin-right:4px">🔒</button>`:''}
         ${isLocked
           ?`<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openNbUnlock('${k}','pages')">🔓 Unlock</button>`
           :`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();addNbPage('${k}')">＋ Page</button>`
@@ -6984,6 +7213,25 @@ async function submitNbUnlock(){
     document.getElementById('nb-unlock-error').style.display='block';
     document.getElementById('nb-unlock-pw').select();
   }
+}
+
+// Re-lock a notebook that was unlocked earlier in this session. If a page from
+// it happens to be open in the editor, flush + close that editor first — leaving
+// it open would defeat the point of locking it back up.
+function relockNotebook(nbId){
+  const nb=storage.notebooks&&storage.notebooks[nbId];
+  if(!nb||!nb.locked)return;
+  if(editingNbNotebook===nbId){
+    flushNbPageToMemory();
+    clearTimeout(nbAutoSaveTimer);
+    saveNbPageToDrive();
+    closeModal('modal-nb-page');
+    editingNbNotebook=null;editingNbPage=null;
+  }
+  _nbUnlockedIds.delete(nbId);
+  _nbExpanded.delete(nbId);
+  renderNotebooks();
+  toast('🔒 Notebook locked');
 }
 
 // ── Page editing (full-screen, with autosave) ──
@@ -7371,8 +7619,8 @@ function renderWeekly(){
   const fmtD = d => d.toLocaleDateString('en-IN',{day:'numeric',month:'short'});
   document.getElementById('week-label').textContent = `${fmtD(mon)} – ${fmtD(sun)}`;
 
-  const monStr = mon.toISOString().slice(0,10);
-  const sunStr = sun.toISOString().slice(0,10);
+  const monStr = localISO(mon);
+  const sunStr = localISO(sun);
 
   const ps = storage.projects || [];
   const allTasks = ps.flatMap(p=>(p.tasks||[]).map(t=>({...t,projName:p.name})));
@@ -7391,7 +7639,7 @@ function renderWeekly(){
   const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const dayCounts = days.map((_,i)=>{
     const d = new Date(mon); d.setDate(mon.getDate()+i);
-    const ds = d.toISOString().slice(0,10);
+    const ds = localISO(d);
     return {label: days[i], date: ds, count: allTasks.filter(t=>t.done&&t.completedOn===ds).length};
   });
   const maxC = Math.max(...dayCounts.map(d=>d.count), 1);
@@ -7512,7 +7760,7 @@ function calcCompletionStreak(){
   const today = new Date(); let streak = 0;
   for(let i=0;i<365;i++){
     const d = new Date(today); d.setDate(today.getDate()-i);
-    const ds = d.toISOString().slice(0,10);
+    const ds = localISO(d);
     const ps = storage.projects||[];
     const hadDone = ps.some(p=>(p.tasks||[]).some(t=>t.completedOn===ds));
     if(hadDone) streak++; else if(i>0) break;
@@ -7824,33 +8072,44 @@ function dismissReminder(){
   if(banner)banner.style.display='none';
 }
 
+// A task's reminder is "active" on dateStr if it has one that's fired on or
+// before dateStr and the task isn't past its due date yet. Shared by the
+// dashboard and the diary due-tasks widget so a task with only a reminder set
+// (no due date passed yet) still surfaces as something to look at today.
+function taskReminderActive(t,dateStr){
+  if(t.done||!t.due||!(t.reminders||[]).length)return false;
+  return t.reminders.some(r=>{const rd=computeReminderDate(t.due,r.value,r.unit);return rd&&rd<=dateStr&&t.due>=dateStr;});
+}
 function renderDueTasksWidget(){
   const widget=document.getElementById('due-tasks-widget');
   const listEl=document.getElementById('due-tasks-list');
   const titleEl=document.getElementById('due-tasks-title');
   if(!widget||!listEl)return;
   const today=todayStr();
-  // Collect all pending tasks (due today, overdue, or no due date)
+  // Collect all pending tasks (due today, overdue, reminder firing today, or no due date)
   const pending=(storage.todos||[]).filter(t=>!t.done);
   const overdue=pending.filter(t=>t.due&&t.due<today);
   const dueToday=pending.filter(t=>t.due===today);
+  const reminding=pending.filter(t=>t.due&&t.due>today&&taskReminderActive(t,today));
   const noDue=pending.filter(t=>!t.due);
-  const upcoming=pending.filter(t=>t.due&&t.due>today);
-  // Show: overdue + due today + no-due tasks (up to 8 total)
-  const show=[...overdue,...dueToday,...noDue,...upcoming].slice(0,8);
+  const upcoming=pending.filter(t=>t.due&&t.due>today&&!taskReminderActive(t,today));
+  // Show: overdue + due today + reminders firing today + no-due tasks (up to 8 total)
+  const show=[...overdue,...dueToday,...reminding,...noDue,...upcoming].slice(0,8);
   if(!show.length){widget.style.display='none';return;}
-  const overdueCount=overdue.length,dueTodayCount=dueToday.length;
+  const overdueCount=overdue.length,dueTodayCount=dueToday.length,remindingCount=reminding.length;
   const parts=[];
   if(overdueCount)parts.push(`<span style="color:var(--danger)">${overdueCount} overdue</span>`);
   if(dueTodayCount)parts.push(`<span style="color:var(--warning)">${dueTodayCount} due today</span>`);
+  if(remindingCount)parts.push(`<span style="color:#c77700">${remindingCount} reminder${remindingCount!==1?'s':''}</span>`);
   if(noDue.length)parts.push(`<span style="color:var(--text-muted)">${noDue.length} pending</span>`);
   if(titleEl)titleEl.innerHTML='📌 Tasks — '+parts.join(' · ');
   const pMap={high:'🔴',med:'🟡',low:'🟢',normal:''};
   listEl.innerHTML=show.map(t=>{
     const isOverdue=t.due&&t.due<today;
     const isDueToday=t.due===today;
-    let rowBg=isOverdue?'#fff5f5':isDueToday?'#fffde7':'';
-    let dateLabel=t.due?(isOverdue?`<span style="color:var(--danger);font-weight:700;font-size:10px">OVERDUE · ${fmtDate(t.due)}</span>`:(isDueToday?`<span style="color:var(--warning);font-weight:700;font-size:10px">DUE TODAY</span>`:`<span style="color:var(--text-muted);font-size:10px">${fmtDate(t.due)}</span>`)):'';
+    const isReminding=!isOverdue&&!isDueToday&&taskReminderActive(t,today);
+    let rowBg=isOverdue?'#fff5f5':isDueToday?'#fffde7':isReminding?'#fff8e1':'';
+    let dateLabel=t.due?(isOverdue?`<span style="color:var(--danger);font-weight:700;font-size:10px">OVERDUE · ${fmtDate(t.due)}</span>`:(isDueToday?`<span style="color:var(--warning);font-weight:700;font-size:10px">DUE TODAY</span>`:(isReminding?`<span style="color:#c77700;font-weight:700;font-size:10px">🔔 REMINDER · due ${fmtDate(t.due)}</span>`:`<span style="color:var(--text-muted);font-size:10px">${fmtDate(t.due)}</span>`))):'';
     return `<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);background:${rowBg}" onclick="navTo('tasks')" style="cursor:pointer">
       <input type="checkbox" onchange="toggleTask('${t.id}');renderDueTasksWidget()" onclick="event.stopPropagation()" style="width:18px;height:18px;accent-color:var(--primary);cursor:pointer;flex-shrink:0"/>
       <div style="flex:1;min-width:0">
@@ -7897,7 +8156,7 @@ function getUpcomingAnniversaries(days){
   return out.sort((a,b)=>a.diffDays-b.diffDays);
 }
 function computeMonthSpend(){
-  const now=new Date();const ym=now.toISOString().slice(0,7);
+  const now=new Date();const ym=localISO(now).slice(0,7);
   const items=(storage.expenses||[]).filter(e=>(e.date||'').slice(0,7)===ym);
   const total=items.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   const byCat={};
@@ -7969,16 +8228,25 @@ function renderDashboard(){
     <div class="card" style="padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--gold)">${contactCount}</div><div style="font-size:10.5px;color:var(--text-muted);font-weight:600">Contacts</div></div>
     <div class="card" style="padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--warning)">${projectCount}</div><div style="font-size:10.5px;color:var(--text-muted);font-weight:600">Active Projects</div></div>`;
 
-  // today's tasks
+  // today's tasks — overdue, due today, or with a reminder firing today even if
+  // the actual due date is still in the future
   const today=todayStr();
-  const todays=(storage.todos||[]).filter(t=>!t.done&&(t.due===today||(t.due&&t.due<today))).slice(0,5);
+  const rank=t=>(t.due&&t.due<today)?0:(t.due===today)?1:2; // overdue, then due-today, then reminder-only
+  const todays=(storage.todos||[])
+    .filter(t=>!t.done&&(t.due===today||(t.due&&t.due<today)||taskReminderActive(t,today)))
+    .sort((a,b)=>rank(a)-rank(b))
+    .slice(0,5);
   const dtl=document.getElementById('dash-tasks-list');
   dtl.innerHTML=todays.length?todays.map(t=>{
     const overdue=t.due&&t.due<today;
+    const dueToday=t.due===today;
+    const badge=overdue?'<span style="font-size:10px;font-weight:700;color:var(--danger)">OVERDUE</span>'
+      :dueToday?'<span style="font-size:10px;font-weight:700;color:var(--warning)">TODAY</span>'
+      :'<span style="font-size:10px;font-weight:700;color:#c77700">🔔 REMINDER</span>';
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface2);border-radius:var(--radius-sm)" onclick="navTo('tasks')">
       <input type="checkbox" onchange="toggleTask('${t.id}');renderDashboard()" onclick="event.stopPropagation()" style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer"/>
       <div style="flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(t.text)}</div>
-      ${overdue?'<span style="font-size:10px;font-weight:700;color:var(--danger)">OVERDUE</span>':'<span style="font-size:10px;font-weight:700;color:var(--warning)">TODAY</span>'}
+      ${badge}
     </div>`;
   }).join(''):'<div style="font-size:13px;color:var(--text-muted)">Nothing due today 🎉</div>';
 
