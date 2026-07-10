@@ -1601,6 +1601,9 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             <h3 id="doc-folder-title" style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;margin:0"></h3>
             <div style="display:flex;gap:4px;align-items:center">
               <button id="doc-collapse-all-btn" class="btn btn-secondary" style="padding:6px 10px;font-size:11.5px" onclick="toggleAllDocFieldsCollapse()">↕️ Collapse/Expand All</button>
+              <button class="icon-btn" id="doc-lock-now-btn" onclick="relockDocFolderCurrent()" title="Lock now" style="display:none">🔒</button>
+              <button class="icon-btn" id="doc-lock-toggle-btn" onclick="openDocFolderLockSettings(currentDocFolderId)" title="Folder lock settings">🔓</button>
+              <button class="icon-btn" onclick="renameDocFolderCurrent()" title="Rename folder">✏️</button>
               <button class="icon-btn" onclick="deleteDocFolderCurrent()" title="Delete folder">🗑</button>
             </div>
           </div>
@@ -2260,11 +2263,49 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 <div class="modal-overlay" id="modal-new-doc-folder">
   <div class="modal">
     <div class="modal-handle"></div>
-    <h2>📁 New Folder</h2>
+    <h2 id="doc-folder-modal-title">📁 New Folder</h2>
     <div class="form-group"><label class="form-label">Person / Folder Name</label><input type="text" class="form-input" id="doc-new-folder-name" placeholder="e.g. Dad, Mom, Self…" onkeydown="if(event.key==='Enter')submitNewDocFolder()"/></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-new-doc-folder')">Cancel</button>
-      <button class="btn btn-primary" onclick="submitNewDocFolder()">Create</button>
+      <button class="btn btn-primary" id="doc-folder-modal-submit-btn" onclick="submitNewDocFolder()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Document Folder — lock settings (set/change/remove password) -->
+<div class="modal-overlay" id="modal-doc-folder-lock">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2 id="doc-lock-modal-title">🔒 Folder Lock</h2>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="doc-lock-enable" onchange="toggleDocLockFields()" style="width:18px;height:18px"/>
+        <span style="font-size:13.5px;font-weight:600">Lock this folder with a password</span>
+      </label>
+    </div>
+    <div class="form-group" id="doc-lock-pw-fields" style="display:none">
+      <label class="form-label">Password</label>
+      <input type="password" class="form-input" id="doc-lock-pw" placeholder="Leave blank to keep current password" onkeydown="if(event.key==='Enter')submitDocFolderLock()"/>
+    </div>
+    <div style="font-size:11.5px;color:var(--text-muted);margin-top:-6px;margin-bottom:6px">This adds an extra password just for this folder within the app — anyone who has already unlocked your diary and knows this password can still view it.</div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-doc-folder-lock')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitDocFolderLock()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Document Folder — unlock prompt -->
+<div class="modal-overlay" id="modal-doc-folder-unlock">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>🔒 Enter Folder Password</h2>
+    <div id="doc-unlock-label" style="font-size:13px;color:var(--text-muted);margin-bottom:10px"></div>
+    <div class="form-group"><input type="password" class="form-input" id="doc-unlock-pw" placeholder="Folder password" onkeydown="if(event.key==='Enter')submitDocFolderUnlock()"/></div>
+    <div id="doc-unlock-error" style="display:none;color:var(--danger);font-size:12.5px;margin-top:-6px">Incorrect password</div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-doc-folder-unlock')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitDocFolderUnlock()">Unlock</button>
     </div>
   </div>
 </div>
@@ -4092,7 +4133,8 @@ async function showUserAndDiaries(){
       '<span class="g-badge">✓</span>';
     document.getElementById('step-signin').style.display='none';
     document.getElementById('step-diaries').style.display='block';
-  }catch(e){hideLoading();toast('❌ '+e.message);console.error(e);}
+  }catch(e){toast('❌ '+e.message);console.error(e);}
+  finally{hideLoading();}
 }
 
 // ── OneDrive REST ──
@@ -4644,6 +4686,7 @@ function performLockExit(){
     currentRecoveryKey=null;lastRecoveryBlobRaw=null;
     accessToken=null;userProfile=null;
     _nbUnlockedIds=new Set();
+    _docUnlockedIds=new Set();
     document.removeEventListener('keydown',globalKey);
     document.getElementById('app-screen').classList.remove('active');
     document.getElementById('selector-screen').classList.add('active');
@@ -6930,6 +6973,7 @@ function ensureDocDefaults(){
 }
 
 // ── Folder list (top-level view) ──
+let _docUnlockedIds=new Set(); // doc folders unlocked this session
 function renderDocuments(){
   ensureDocDefaults();
   const detailOpen=currentDocFolderId&&storage.docFolders.find(f=>f.id===currentDocFolderId);
@@ -6941,27 +6985,142 @@ function renderDocuments(){
   let folders=[...storage.docFolders].filter(f=>!q||(f.name||'').toLowerCase().includes(q));
   folders.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   document.getElementById('doc-folders-list').innerHTML=folders.length?folders.map(f=>{
+    const isLocked=f.locked&&!_docUnlockedIds.has(f.id);
     const docCount=Object.keys(f.docs||{}).filter(k=>(f.docs[k].attachments||[]).length).length;
     const total=(storage.docFields||[]).length;
+    if(isLocked){
+      return `
+      <div class="card" style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="openDocFolder('${f.id}')">
+        <div style="width:40px;height:40px;border-radius:50%;background:var(--text-muted);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔒</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px">${escH(f.name)}</div>
+          <div style="font-size:12px;color:var(--text-muted)">Password protected</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openDocFolder('${f.id}')">🔓 Unlock</button>
+      </div>`;
+    }
     return `
     <div class="card" style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="openDocFolder('${f.id}')">
       <div style="width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📁</div>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:14px">${escH(f.name)}</div>
+        <div style="font-weight:700;font-size:14px">${escH(f.name)} ${f.locked?'<span style="font-size:12px" title="Locked when closed">🔒</span>':''}</div>
         <div style="font-size:12px;color:var(--text-muted)">${docCount} of ${total} document${total===1?'':'s'} added</div>
       </div>
-      <div class="icon-btn" onclick="event.stopPropagation();deleteDocFolder('${f.id}')">🗑</div>
+      <div class="icon-btn" onclick="event.stopPropagation();renameDocFolder('${f.id}')" title="Rename folder">✏️</div>
+      <div class="icon-btn" onclick="event.stopPropagation();deleteDocFolder('${f.id}')" title="Delete folder">🗑</div>
     </div>`;
   }).join(''):`<div class="empty"><div class="empty-icon">📁</div><p>No folders yet</p><p style="font-size:12px;margin-top:6px;color:var(--text-muted)">Tap ＋ to create one — e.g. "Dad", "Mom", "Self"</p></div>`;
 }
+let _docFolderModalMode='create'; // 'create' | 'rename'
+let _renamingDocFolderId=null;
 function openNewDocFolderModal(){
+  _docFolderModalMode='create';
+  _renamingDocFolderId=null;
+  document.getElementById('doc-folder-modal-title').textContent='📁 New Folder';
+  document.getElementById('doc-folder-modal-submit-btn').textContent='Create';
   document.getElementById('doc-new-folder-name').value='';
   openModal('modal-new-doc-folder');
   setTimeout(()=>document.getElementById('doc-new-folder-name')?.focus(),250);
 }
+function renameDocFolder(id){
+  const folder=(storage.docFolders||[]).find(f=>f.id===id);
+  if(!folder)return;
+  _docFolderModalMode='rename';
+  _renamingDocFolderId=id;
+  document.getElementById('doc-folder-modal-title').textContent='✏️ Rename Folder';
+  document.getElementById('doc-folder-modal-submit-btn').textContent='Save';
+  document.getElementById('doc-new-folder-name').value=folder.name||'';
+  openModal('modal-new-doc-folder');
+  setTimeout(()=>{const el=document.getElementById('doc-new-folder-name');if(el){el.focus();el.select();}},250);
+}
+function renameDocFolderCurrent(){ if(currentDocFolderId)renameDocFolder(currentDocFolderId); }
+
+// ── Folder lock (password-protect a folder within the app) ──
+let _docLockSettingsId=null; // folder being configured in modal-doc-folder-lock
+let _docUnlockId=null;       // folder awaiting password entry in modal-doc-folder-unlock
+async function docFolderCheckPw(folder,pw){return folder.pwHash===(await nbHash(pw));}
+function openDocFolderLockSettings(id){
+  const folder=(storage.docFolders||[]).find(f=>f.id===id);
+  if(!folder)return;
+  _docLockSettingsId=id;
+  document.getElementById('doc-lock-modal-title').textContent='🔒 '+folder.name;
+  document.getElementById('doc-lock-enable').checked=!!folder.locked;
+  document.getElementById('doc-lock-pw').value='';
+  document.getElementById('doc-lock-pw-fields').style.display=folder.locked?'block':'none';
+  openModal('modal-doc-folder-lock');
+}
+function toggleDocLockFields(){
+  const on=document.getElementById('doc-lock-enable').checked;
+  document.getElementById('doc-lock-pw-fields').style.display=on?'block':'none';
+}
+async function submitDocFolderLock(){
+  const folder=(storage.docFolders||[]).find(f=>f.id===_docLockSettingsId);
+  if(!folder)return;
+  const locked=document.getElementById('doc-lock-enable').checked;
+  if(locked){
+    const pw=document.getElementById('doc-lock-pw').value;
+    if(pw){folder.pwHash=await nbHash(pw);}
+    else if(!folder.pwHash){toast('Enter a password for the lock');return;}
+    folder.locked=true;
+    _docUnlockedIds.add(folder.id); // you just set it, no need to re-enter the password immediately
+  } else {
+    folder.locked=false;
+    folder.pwHash=null;
+    _docUnlockedIds.delete(folder.id);
+  }
+  closeModal('modal-doc-folder-lock');
+  renderDocuments();saveToDrive();
+  toast(locked?'🔒 Folder locked':'🔓 Folder lock removed');
+}
+function openDocFolderUnlock(id){
+  const folder=(storage.docFolders||[]).find(f=>f.id===id);
+  if(!folder)return;
+  _docUnlockId=id;
+  document.getElementById('doc-unlock-label').textContent='🔒 '+folder.name;
+  document.getElementById('doc-unlock-pw').value='';
+  document.getElementById('doc-unlock-error').style.display='none';
+  openModal('modal-doc-folder-unlock');
+  setTimeout(()=>document.getElementById('doc-unlock-pw').focus(),200);
+}
+async function submitDocFolderUnlock(){
+  const pw=document.getElementById('doc-unlock-pw').value;
+  if(!pw)return toast('Enter password');
+  const folder=(storage.docFolders||[]).find(f=>f.id===_docUnlockId);
+  if(!folder)return;
+  const ok=await docFolderCheckPw(folder,pw);
+  if(ok){
+    _docUnlockedIds.add(_docUnlockId);
+    closeModal('modal-doc-folder-unlock');
+    openDocFolder(_docUnlockId);
+  } else {
+    document.getElementById('doc-unlock-error').style.display='block';
+    document.getElementById('doc-unlock-pw').select();
+  }
+}
+// Re-lock a folder that was unlocked earlier this session, and step back out to the list —
+// staying inside it after locking would defeat the point.
+function relockDocFolder(id){
+  const folder=(storage.docFolders||[]).find(f=>f.id===id);
+  if(!folder||!folder.locked)return;
+  _docUnlockedIds.delete(id);
+  if(currentDocFolderId===id)currentDocFolderId=null;
+  renderDocuments();
+  toast('🔒 Folder locked');
+}
+function relockDocFolderCurrent(){ if(currentDocFolderId)relockDocFolder(currentDocFolderId); }
 function submitNewDocFolder(){
   const name=document.getElementById('doc-new-folder-name').value.trim();
   if(!name)return toast('Enter a name');
+  if(_docFolderModalMode==='rename'){
+    const folder=(storage.docFolders||[]).find(f=>f.id===_renamingDocFolderId);
+    if(!folder){closeModal('modal-new-doc-folder');return;}
+    folder.name=name;
+    closeModal('modal-new-doc-folder');
+    saveToDrive();
+    renderDocuments();
+    toast('✅ Folder renamed');
+    return;
+  }
   ensureDocDefaults();
   const f={id:uuid(),name,createdAt:todayStr(),docs:{}};
   storage.docFolders.push(f);
@@ -6973,18 +7132,28 @@ async function deleteDocFolder(id){
   if(!(await showConfirm('Delete this folder and everything inside it?')))return;
   storage.docFolders=(storage.docFolders||[]).filter(x=>x.id!==id);
   storage.todos=(storage.todos||[]).filter(t=>!(t.docLink&&t.docLink.startsWith(id+'::')));
+  _docUnlockedIds.delete(id);
   if(currentDocFolderId===id)currentDocFolderId=null;
   renderDocuments();saveToDrive();
 }
 function deleteDocFolderCurrent(){ if(currentDocFolderId)deleteDocFolder(currentDocFolderId); }
 
 // ── Folder detail (fields inside one person's folder) ──
-function openDocFolder(id){ currentDocFolderId=id; renderDocuments(); }
+function openDocFolder(id){
+  const folder=(storage.docFolders||[]).find(f=>f.id===id);
+  if(!folder)return;
+  if(folder.locked&&!_docUnlockedIds.has(id)){ openDocFolderUnlock(id); return; }
+  currentDocFolderId=id; renderDocuments();
+}
 function backToDocFolders(){ currentDocFolderId=null; renderDocuments(); }
 function renderDocFolderDetail(){
   const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
   if(!folder){backToDocFolders();return;}
   document.getElementById('doc-folder-title').textContent='📁 '+folder.name;
+  const lockBtn=document.getElementById('doc-lock-toggle-btn');
+  if(lockBtn){lockBtn.textContent=folder.locked?'🔒':'🔓';lockBtn.title=folder.locked?'Change folder lock':'Lock this folder';}
+  const lockNowBtn=document.getElementById('doc-lock-now-btn');
+  if(lockNowBtn)lockNowBtn.style.display=folder.locked?'inline-flex':'none';
   const fields=storage.docFields||[];
   const toggleBtn=document.getElementById('doc-collapse-all-btn');
   if(toggleBtn)toggleBtn.style.display=fields.length?'inline-flex':'none';
