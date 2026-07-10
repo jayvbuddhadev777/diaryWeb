@@ -1520,17 +1520,6 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
                 <option value="month">Month</option>
               </select>
             </div>
-            <div style="flex:1;min-width:130px">
-              <div class="form-label" style="font-size:10px">Then Sub-group By</div>
-              <select class="form-input" id="rep-subgroupby" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()">
-                <option value="">— None —</option>
-                <option value="category">Category</option>
-                <option value="account">Account</option>
-                <option value="mode">Payment Mode</option>
-                <option value="date">Date (day)</option>
-                <option value="month">Month</option>
-              </select>
-            </div>
           </div>
           <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
             <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">⬇ CSV</button>
@@ -1578,6 +1567,27 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
         </div>
         <input type="file" id="contact-excel-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleContactImportFile(this)"/>
         <div id="contacts-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+
+      <!-- DOCUMENTS (notebook-style: define fields once, then a folder per person) -->
+      <div class="panel" id="panel-documents">
+        <!-- FOLDER LIST VIEW -->
+        <div id="doc-folders-view">
+          <div style="display:flex;gap:8px;margin:0 0 4px">
+            <button class="btn btn-secondary" style="flex:1;padding:9px;font-size:12.5px" onclick="openManageFieldsModal()">🏷️ Manage Fields</button>
+          </div>
+          <input type="text" class="form-input" id="doc-folder-search" placeholder="🔍 Search folders…" oninput="debounceCall(this,renderDocuments)"/>
+          <div id="doc-folders-list" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+        <!-- FOLDER DETAIL VIEW (one person's documents, one row per field) -->
+        <div id="doc-folder-detail" style="display:none">
+          <button class="btn btn-secondary" style="padding:8px 14px;font-size:12.5px;margin-bottom:6px" onclick="backToDocFolders()">← All Folders</button>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <h3 id="doc-folder-title" style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;margin:0"></h3>
+            <button class="icon-btn" onclick="deleteDocFolderCurrent()" title="Delete folder">🗑</button>
+          </div>
+          <div id="doc-folder-fields-list" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
       </div>
 
       <!-- STICKY NOTES -->
@@ -1696,6 +1706,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
             <div class="pill" onclick="setSearchType('tasks',this)">✅ Tasks</div>
             <div class="pill" onclick="setSearchType('expenses',this)">💰 Expenses</div>
             <div class="pill" onclick="setSearchType('contacts',this)">📇 Contacts</div>
+            <div class="pill" onclick="setSearchType('documents',this)">🪪 Documents</div>
             <div class="pill" onclick="setSearchType('notes',this)">📌 Notes</div>
           </div>
 
@@ -1750,6 +1761,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
           <div class="pill active" data-src="all" onclick="setGalleryFilter('all',this)">All</div>
           <div class="pill" data-src="diary" onclick="setGalleryFilter('diary',this)">📓 Diary</div>
           <div class="pill" data-src="contacts" onclick="setGalleryFilter('contacts',this)">📇 Contacts</div>
+          <div class="pill" data-src="documents" onclick="setGalleryFilter('documents',this)">🪪 Documents</div>
           <div class="pill" data-src="expenses" onclick="setGalleryFilter('expenses',this)">💰 Expenses</div>
           <div class="pill" data-src="tasks" onclick="setGalleryFilter('tasks',this)">✅ Tasks</div>
           <div class="pill" data-src="notes" onclick="setGalleryFilter('notes',this)">📌 Notes</div>
@@ -1835,6 +1847,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="more-item" onclick="navFromMore('notebook')"><span class="more-item-icon">📚</span>Notebooks</div>
     <div class="more-item" onclick="navFromMore('expenses')"><span class="more-item-icon">💰</span>Expenses</div>
     <div class="more-item" onclick="navFromMore('contacts')"><span class="more-item-icon">📇</span>Contacts</div>
+    <div class="more-item" onclick="navFromMore('documents')"><span class="more-item-icon">🪪</span>Documents</div>
     <div class="more-item" onclick="navFromMore('notes')"><span class="more-item-icon">📌</span>Sticky Notes</div>
     <div class="more-item" onclick="navFromMore('projects')"><span class="more-item-icon">🗂</span>Projects</div>
     <div class="more-item" onclick="navFromMore('gallery')"><span class="more-item-icon">🖼</span>Attachment Gallery</div>
@@ -2152,6 +2165,65 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     </div>
   </div>
 </div>
+
+<!-- Add/Edit Document -->
+<div class="modal-overlay" id="modal-document">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2 id="document-modal-title">🪪 Add Document</h2>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Document / ID Number</label><input type="text" class="form-input" id="doc-number" placeholder="Optional"/></div>
+      <div class="form-group"><label class="form-label">Expiry Date</label><input type="date" class="form-input" id="doc-expiry"/></div>
+    </div>
+    <div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-input" id="doc-notes" placeholder="Optional"/></div>
+    <div class="form-group">
+      <label class="form-label">📎 Attached Files</label>
+      <div id="attach-strip-document" class="attach-strip"></div>
+      <div class="attach-btns">
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-img-document').click()">🖼️ Photo</button>
+        <button type="button" class="attach-btn" onclick="document.getElementById('attach-pdf-document').click()">📄 PDF</button>
+        <button type="button" class="attach-btn" onclick="captureScreenshot('document')">🖥️ Screenshot</button>
+      </div>
+      <input type="file" id="attach-img-document" accept="image/*" multiple style="display:none" onchange="handleAttachFiles('document',this,'image')"/>
+      <input type="file" id="attach-pdf-document" accept="application/pdf" multiple style="display:none" onchange="handleAttachFiles('document',this,'pdf')"/>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-document')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitDocument()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manage Document Fields (the field names you fill in per folder, e.g. Aadhaar, PAN…) -->
+<div class="modal-overlay" id="modal-doc-fields">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>🏷️ Manage Fields</h2>
+    <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">These are the document types every folder can hold. Add your own, or remove ones you don't need.</div>
+    <div id="doc-fields-manage-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <input type="text" class="form-input" id="doc-new-field-name" placeholder="e.g. Marriage Certificate" style="flex:1" onkeydown="if(event.key==='Enter')addDocField()"/>
+      <button class="btn btn-primary" style="flex-shrink:0" onclick="addDocField()">＋ Add</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-doc-fields');renderDocuments()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Document Folder (one per person) -->
+<div class="modal-overlay" id="modal-new-doc-folder">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>📁 New Folder</h2>
+    <div class="form-group"><label class="form-label">Person / Folder Name</label><input type="text" class="form-input" id="doc-new-folder-name" placeholder="e.g. Dad, Mom, Self…" onkeydown="if(event.key==='Enter')submitNewDocFolder()"/></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-new-doc-folder')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitNewDocFolder()">Create</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- Send Wishes (birthday / anniversary template message) -->
 <div class="modal-overlay" id="modal-wishes">
@@ -3088,6 +3160,7 @@ function showDexportPreview(data){
     {key:'lists', count:Array.isArray(nData.lists)?nData.lists.length:0, label:n=>`📋 ${n} checklist${n===1?'':'s'}`},
     {key:'expenses', count:Array.isArray(nData.expenses)?nData.expenses.length:0, label:n=>`💰 ${n} expense entr${n===1?'y':'ies'}`},
     {key:'contacts', count:Array.isArray(nData.contacts)?nData.contacts.length:0, label:n=>`📇 ${n} contact${n===1?'':'s'}`},
+    {key:'docFolders', count:Array.isArray(nData.docFolders)?nData.docFolders.length:0, label:n=>`🪪 ${n} document folder${n===1?'':'s'}`},
     {key:'sticky_notes', count:Array.isArray(nData.sticky_notes)?nData.sticky_notes.length:0, label:n=>`📌 ${n} sticky note${n===1?'':'s'}`},
     {key:'projects', count:Array.isArray(nData.projects)?nData.projects.length:0, label:n=>`🗂 ${n} project${n===1?'':'s'}`},
     {key:'entries', count:countObj(nData.entries), label:n=>`📓 ${n} diary entr${n===1?'y':'ies'}`},
@@ -3244,12 +3317,12 @@ function commitDexportImport(){
   storage.secret_entries=storage.secret_entries||{};
   storage.notebooks=storage.notebooks||{};
   storage.todos=storage.todos||[]; storage.lists=storage.lists||[]; storage.expenses=storage.expenses||[];
-  storage.contacts=storage.contacts||[]; storage.sticky_notes=storage.sticky_notes||[]; storage.projects=storage.projects||[];
+  storage.contacts=storage.contacts||[]; storage.docFolders=storage.docFolders||[]; storage.docFields=(storage.docFields&&storage.docFields.length)?storage.docFields:DEFAULT_DOC_FIELDS.map(f=>({...f})); storage.sticky_notes=storage.sticky_notes||[]; storage.projects=storage.projects||[];
   storage.expLists=storage.expLists||{cats:[],modes:[],accs:[]};
 
   let added=0, skippedDupes=0;
   // Array collections: merge by id, skip if an item with that id already exists.
-  ['todos','lists','expenses','contacts','sticky_notes','projects'].forEach(key=>{
+  ['todos','lists','expenses','contacts','docFolders','sticky_notes','projects'].forEach(key=>{
     if(!includedKeys.has(key)||!Array.isArray(data[key]))return;
     const existingIds=new Set(storage[key].map(x=>x.id));
     data[key].forEach(item=>{
@@ -3292,6 +3365,7 @@ function refreshCurrentPanel(){
   if(p==='calendar')renderCalPanel();
   if(p==='expenses'){renderExpenses();if(currentExpTab==='report')renderReport();}
   if(p==='contacts')renderContacts();
+  if(p==='documents')renderDocuments();
   if(p==='notes')renderNotes();
   if(p==='notebook')renderNotebooks();
   if(p==='projects'){renderProjects();renderProjStats();}
@@ -3828,6 +3902,12 @@ function collectAllAttachments(){
   const push=(type,label,date,atts)=>{(atts||[]).forEach(a=>out.push({type,label,date:date||'',att:a}));};
   Object.keys(storage.entries||{}).forEach(d=>push('diary','📓 '+fmtDate(d),d,storage.entries[d].attachments));
   (storage.contacts||[]).forEach(c=>push('contacts','📇 '+c.name,'',c.attachments));
+  (storage.docFolders||[]).forEach(folder=>{
+    Object.entries(folder.docs||{}).forEach(([fieldId,d])=>{
+      const field=(storage.docFields||[]).find(x=>x.id===fieldId);
+      push('documents',(field?field.icon+' '+field.name:'🪪 Document')+' — '+folder.name,'',d.attachments);
+    });
+  });
   (storage.expenses||[]).forEach(e=>push('expenses','💰 '+(e.category||'Expense')+' · ₹'+e.amount,e.date,e.attachments));
   (storage.todos||[]).forEach(t=>push('tasks','✅ '+t.text,t.due,t.attachments));
   (storage.lists||[]).forEach(l=>(l.items||[]).forEach(i=>push('tasks','📋 '+i.text,'',i.attachments)));
@@ -4057,7 +4137,7 @@ async function submitLogin(){
 }
 
 function normalizeStorage(){
-  ['entries','todos','lists','expenses','contacts','sticky_notes','notebooks','projects','secret_entries'].forEach(k=>{
+  ['entries','todos','lists','expenses','contacts','docFolders','sticky_notes','notebooks','projects','secret_entries'].forEach(k=>{
     if(!storage[k])storage[k]=(k==='entries'||k==='notebooks'||k==='secret_entries'?{}:[]);
   });
   if(!storage.expLists)storage.expLists={cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]};
@@ -4067,6 +4147,7 @@ function normalizeStorage(){
   if(storage.gcalCfg.clientId===undefined)storage.gcalCfg.clientId='';
   if(storage.gcalCfg.connected===undefined)storage.gcalCfg.connected=false;
   if(!storage.gcalEventMap)storage.gcalEventMap={};
+  if(!storage.docFields||!storage.docFields.length)storage.docFields=DEFAULT_DOC_FIELDS.map(f=>({...f}));
 }
 
 async function uploadToDrive(name,ab,existingId){
@@ -4425,6 +4506,7 @@ function refreshUIAfterRemoteSync(){
   if(p==='calendar')renderCalPanel();
   if(p==='expenses'){renderExpenses();if(currentExpTab==='report')renderReport();}
   if(p==='contacts')renderContacts();
+  if(p==='documents')renderDocuments();
   if(p==='notes')renderNotes();
   if(p==='notebook')renderNotebooks();
   if(p==='projects'){renderProjects();renderProjStats();}
@@ -4462,7 +4544,7 @@ async function submitNewDiary(){
   if(!name)return toast('Enter a name');if(pw.length<4)return toast('Password too short');if(pw!==pw2)return toast('Passwords mismatch');
   closeModal('modal-new-diary');showLoading('Creating…');
   try{
-    const init={entries:{},todos:[],lists:[],expenses:[],contacts:[],sticky_notes:[],notebooks:{},projects:[],secret_entries:{},expLists:{cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]}};
+    const init={entries:{},todos:[],lists:[],expenses:[],contacts:[],docFolders:[],docFields:DEFAULT_DOC_FIELDS.map(f=>({...f})),sticky_notes:[],notebooks:{},projects:[],secret_entries:{},expLists:{cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]}};
     const initJson=JSON.stringify(init);
     const mainAB=await encryptData(initJson,pw);
     const recoveryKey=generateRecoveryKey();
@@ -5275,7 +5357,7 @@ function launchApp(){
 }
 
 // ── NAVIGATION ──
-const PANELS={dashboard:'🏠 Dashboard',diary:'📓 Diary',tasks:'✅ Tasks',lists:'📋 Checklists',calendar:'📅 Calendar',expenses:'💰 Expenses',contacts:'📇 Contacts',notes:'📌 Sticky Notes',notebook:'📚 Notebooks',projects:'🗂 Projects',search:'🔍 Search',gallery:'🖼 Gallery'};
+const PANELS={dashboard:'🏠 Dashboard',diary:'📓 Diary',tasks:'✅ Tasks',lists:'📋 Checklists',calendar:'📅 Calendar',expenses:'💰 Expenses',contacts:'📇 Contacts',documents:'🪪 Documents',notes:'📌 Sticky Notes',notebook:'📚 Notebooks',projects:'🗂 Projects',search:'🔍 Search',gallery:'🖼 Gallery'};
 function navTo(p){
   currentPanel=p;
   document.querySelectorAll('.panel').forEach(el=>el.classList.remove('active'));
@@ -5288,7 +5370,7 @@ function navTo(p){
   document.getElementById('header-panel-title').textContent=PANELS[p]||'';
   document.getElementById('header-date-sub').textContent=p==='diary'?fmtDate(currentDate):'';
   const fab=document.getElementById('fab');
-  fab.style.display=['diary','tasks','lists','expenses','contacts','notes','notebook','projects'].includes(p)?'flex':'none';
+  fab.style.display=['diary','tasks','lists','expenses','contacts','documents','notes','notebook','projects'].includes(p)?'flex':'none';
   closeDrawer();
   vibrate(6); // subtle haptic on nav
   if(p==='diary')loadDiaryEntry();
@@ -5297,6 +5379,7 @@ function navTo(p){
   if(p==='calendar')renderCalPanel();
   if(p==='expenses'){initExpDates();renderExpenses();if(currentExpTab==='report')renderReport();}
   if(p==='contacts')renderContacts();
+  if(p==='documents')renderDocuments();
   if(p==='notes')renderNotes();
   if(p==='notebook')renderNotebooks();
   if(p==='projects'){renderProjects();renderProjStats();}
@@ -5340,6 +5423,7 @@ function fabAction(){
     return;
   }
   if(currentPanel==='contacts'){editingContactId=null;['contact-name','contact-phone','contact-email','contact-relation','contact-alias','contact-birthday','contact-anniversary','contact-company','contact-whatsapp','contact-website','contact-address','contact-remark'].forEach(id=>document.getElementById(id).value='');initAttachUI('contact',[]);openModal('modal-contact');return;}
+  if(currentPanel==='documents'){openNewDocFolderModal();return;}
   if(currentPanel==='notes'){editingNoteId=null;document.getElementById('note-editor').innerHTML='';document.getElementById('note-tags').value='';selectedNoteColor='#fff9c4';initNoteColorPicker();document.querySelectorAll('.color-swatch').forEach((s,i)=>s.classList.toggle('sel',i===0));initAttachUI('note',[]);openModal('modal-note');return;}
   if(currentPanel==='notebook'){openNewNotebookModal();return;}
   if(currentPanel==='projects'){openNewProjectModal();return;}
@@ -6273,46 +6357,11 @@ function renderReport(){
     return k;
   }
   document.getElementById('rep-chart-title').textContent='💰 Spending by '+GROUP_LABELS[groupBy];
+  document.getElementById('rep-table-title').textContent='📋 '+GROUP_LABELS[groupBy]+' Breakdown';
   _repFiltered=filtered;_repGroupKeyFor=groupKeyFor;_repGroupLabel=GROUP_LABELS[groupBy];
-
-  // Optional second-level grouping (multilevel report): e.g. group by Category,
-  // then sub-group each category's spend by Account/Mode/Date/Month.
-  const subGroupBy=document.getElementById('rep-subgroupby')?.value||'';
-  function subKeyFor(e){
-    if(subGroupBy==='account')return e.account||'—';
-    if(subGroupBy==='mode')return e.mode||'—';
-    if(subGroupBy==='date')return e.date;
-    if(subGroupBy==='month')return e.date?e.date.slice(0,7):'—';
-    if(subGroupBy==='category')return e.category||'Other';
-    return '';
-  }
-  function subKeyDisplay(k){
-    if(subGroupBy==='date')return fmtDate(k);
-    if(subGroupBy==='month'){const [y,m]=k.split('-');return new Date(y,m-1,1).toLocaleDateString('en-IN',{month:'short',year:'numeric'});}
-    return k;
-  }
-  if(document.getElementById('rep-table-title'))
-    document.getElementById('rep-table-title').textContent='📋 '+GROUP_LABELS[groupBy]+(subGroupBy?' → '+GROUP_LABELS[subGroupBy]+' Breakdown':' Breakdown');
-
   const catMap={};
   filtered.filter(e=>parseFloat(e.amount)<0).forEach(e=>{const c=groupKeyFor(e);catMap[c]=(catMap[c]||0)+Math.abs(parseFloat(e.amount)||0);});
   const catEntries=Object.entries(catMap).sort((a,b)=>groupBy==='date'||groupBy==='month'?a[0].localeCompare(b[0]):b[1]-a[1]);
-
-  // Nested breakdown: primaryKey -> [[subKeyDisplay, amount], ...] sorted desc
-  let nestedMap=null;
-  if(subGroupBy){
-    nestedMap={};
-    filtered.filter(e=>parseFloat(e.amount)<0).forEach(e=>{
-      const g=groupKeyFor(e), s=subKeyFor(e);
-      nestedMap[g]=nestedMap[g]||{};
-      nestedMap[g][s]=(nestedMap[g][s]||0)+Math.abs(parseFloat(e.amount)||0);
-    });
-    Object.keys(nestedMap).forEach(g=>{
-      nestedMap[g]=Object.entries(nestedMap[g])
-        .sort((a,b)=>subGroupBy==='date'||subGroupBy==='month'?a[0].localeCompare(b[0]):b[1]-a[1])
-        .map(([k,v])=>[subKeyDisplay(k),v]);
-    });
-  }
   const maxCat=catEntries.length?Math.max(...catEntries.map(e=>e[1])):1;
   const catColors=['#1a3a6b','#1565c0','#0097a7','#00897b','#558b2f','#f57f17','#e65100','#c62828','#6a1b9a','#4527a0'];
   document.getElementById('rep-cat-chart').innerHTML=catEntries.length?catEntries.map(([cat,amt],i)=>`
@@ -6337,33 +6386,19 @@ function renderReport(){
     const bars=[];
     while(cursor<=end){
       const ds=localISO(cursor);
-      // Day-of-month label is parsed straight from `ds` (the same string used as the
-      // bucket key), never read off the mutating `cursor` object. This guarantees the
-      // bar's label can never drift a day off from the amount it's actually showing.
-      const dayNum=parseInt(ds.slice(8,10),10);
       const amt=dailyMap[ds]||0;
-      bars.push(`<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:18px;cursor:${amt>0?'pointer':'default'}" title="${fmtDate(ds)}: ₹${amt.toFixed(0)}${amt>0?' (double-click for details)':''}" ${amt>0?`ondblclick="showDayEntryDetails('${ds}')"`:''}><div style="width:14px;background:${amt>0?'var(--primary)':'var(--border)'};border-radius:3px 3px 0 0;height:${amt>0?Math.max(4,(amt/maxDay*80)).toFixed(0):2}px;transition:height 0.3s"></div><div style="font-size:8px;color:var(--text-muted)">${dayNum}</div></div>`);
+      bars.push(`<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:18px;cursor:${amt>0?'pointer':'default'}" title="${fmtDate(ds)}: ₹${amt.toFixed(0)}${amt>0?' (double-click for details)':''}" ${amt>0?`ondblclick="showDayEntryDetails('${ds}')"`:''}><div style="width:14px;background:${amt>0?'var(--primary)':'var(--border)'};border-radius:3px 3px 0 0;height:${amt>0?Math.max(4,(amt/maxDay*80)).toFixed(0):2}px;transition:height 0.3s"></div><div style="font-size:8px;color:var(--text-muted)">${cursor.getDate()}</div></div>`);
       cursor.setDate(cursor.getDate()+1);
     }
     dayBars=bars.join('');
   }
   document.getElementById('rep-daily-chart').innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;height:100px;padding:4px 0">${dayBars}</div>`;
 
-  // Group-by table (with optional nested subgroup rows underneath each primary row)
+  // Group-by table
   document.getElementById('rep-cat-table').innerHTML=catEntries.length?`
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 4px;color:var(--text-muted)">${escH(GROUP_LABELS[groupBy])}</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">Amount</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">%</th><th style="text-align:right;padding:6px 4px;color:var(--text-muted)">#</th></tr></thead>
-      <tbody>${catEntries.map(([cat,amt])=>{
-        const count=filtered.filter(e=>groupKeyFor(e)===cat&&parseFloat(e.amount)<0).length;
-        const mainRow=`<tr style="border-bottom:1px solid var(--border)"><td style="padding:7px 4px;font-weight:600">${escH(groupKeyDisplay(cat))}</td><td style="text-align:right;padding:7px 4px;color:var(--danger);font-family:monospace">₹${amt.toFixed(0)}</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${spent>0?(amt/spent*100).toFixed(1):0}%</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${count}</td></tr>`;
-        let subRows='';
-        if(nestedMap&&nestedMap[cat]){
-          subRows=nestedMap[cat].map(([sk,sv])=>
-            `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 4px 4px 20px;color:var(--text-muted);font-size:12px">↳ ${escH(sk)}</td><td style="text-align:right;padding:4px;color:var(--text-muted);font-family:monospace;font-size:12px">₹${sv.toFixed(0)}</td><td style="text-align:right;padding:4px;color:var(--text-muted);font-size:12px">${amt>0?(sv/amt*100).toFixed(1):0}%</td><td></td></tr>`
-          ).join('');
-        }
-        return mainRow+subRows;
-      }).join('')}</tbody>
+      <tbody>${catEntries.map(([cat,amt])=>{const count=filtered.filter(e=>groupKeyFor(e)===cat&&parseFloat(e.amount)<0).length;return`<tr style="border-bottom:1px solid var(--border)"><td style="padding:7px 4px;font-weight:600">${escH(groupKeyDisplay(cat))}</td><td style="text-align:right;padding:7px 4px;color:var(--danger);font-family:monospace">₹${amt.toFixed(0)}</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${spent>0?(amt/spent*100).toFixed(1):0}%</td><td style="text-align:right;padding:7px 4px;color:var(--text-muted)">${count}</td></tr>`;}).join('')}</tbody>
     </table>`:'<div style="color:var(--text-muted);font-size:13px">No data</div>';
 
   // Individual transaction lines (respects all active filters)
@@ -6376,8 +6411,7 @@ function renderReport(){
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Category</th>
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Account</th>
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Mode</th>
-        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Remark</th>
-        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Notes</th>
+        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Note</th>
         <th style="text-align:right;padding:6px 4px;color:var(--text-muted)">Amount</th>
       </tr></thead>
       <tbody>${sortedTxns.map(e=>{const amt=parseFloat(e.amount)||0;return`<tr style="border-bottom:1px solid var(--border)">
@@ -6385,8 +6419,7 @@ function renderReport(){
         <td style="padding:6px 4px">${escH(e.category||'—')}</td>
         <td style="padding:6px 4px">${escH(e.account||'—')}</td>
         <td style="padding:6px 4px">${escH(e.mode||'—')}</td>
-        <td style="padding:6px 4px;max-width:180px;white-space:normal;word-break:break-word;color:var(--text-mid)">${escH(e.note||'—')}</td>
-        <td style="padding:6px 4px;max-width:180px;white-space:normal;word-break:break-word;color:var(--text-muted)">${escH(e.notes||'—')}</td>
+        <td style="padding:6px 4px;max-width:220px;white-space:normal;word-break:break-word;color:var(--text-mid)">${escH(e.note||'—')}</td>
         <td style="text-align:right;padding:6px 4px;font-family:monospace;font-weight:700;color:${amt>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(amt).toFixed(0)}</td>
       </tr>`;}).join('')}</tbody>
     </table>`:'<div style="color:var(--text-muted);font-size:13px">No transactions in this range</div>';
@@ -6397,28 +6430,14 @@ function renderReport(){
   window._reportGroupBy=groupBy;
   window._reportGroupEntries=catEntries.map(([k,v])=>[groupKeyDisplay(k),v]);
   window._reportGroupLabel=GROUP_LABELS[groupBy];
-  window._reportSubGroupBy=subGroupBy;
-  window._reportSubGroupLabel=subGroupBy?GROUP_LABELS[subGroupBy]:'';
-  // Nested map keyed by DISPLAY name of the primary group (matches _reportGroupEntries keys)
-  window._reportNestedMap=nestedMap?Object.fromEntries(catEntries.map(([k])=>[groupKeyDisplay(k),nestedMap[k]||[]])):null;
 }
 function exportReportCSV(){
   const exps=window._reportFiltered||[];
   if(!exps.length)return toast('No data in this report to export');
-  const rows=[['Date','Category','Amount','Mode','Account','Remark','Notes']];
-  [...exps].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>rows.push([e.date,e.category||'',e.amount,e.mode||'',e.account||'',e.note||'',e.notes||'']));
+  const rows=[['Date','Category','Amount','Mode','Account','Note']];
+  [...exps].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>rows.push([e.date,e.category||'',e.amount,e.mode||'',e.account||'',e.note||'']));
   const spent=exps.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+Math.abs(parseFloat(e.amount)||0),0);
   const income=exps.filter(e=>parseFloat(e.amount)>0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
-  // Multilevel group → subgroup breakdown, when a sub-group is selected
-  if(window._reportSubGroupBy&&window._reportNestedMap){
-    rows.push([]);
-    rows.push([window._reportGroupLabel||'Group',window._reportSubGroupLabel||'Sub-group','Amount']);
-    (window._reportGroupEntries||[]).forEach(([g])=>{
-      (window._reportNestedMap[g]||[]).forEach(([sk,sv])=>{
-        rows.push([g,sk,sv.toFixed(2)]);
-      });
-    });
-  }
   rows.push([]);
   rows.push(['Period',window._reportRangeLabel||'']);
   rows.push(['Total Income',income.toFixed(2)]);
@@ -6440,7 +6459,7 @@ function exportReportExcel(){
   // Sheet 1: individual transaction lines
   const txnRows=[...exps].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>({
     Date:e.date, Category:e.category||'', Account:e.account||'', Mode:e.mode||'',
-    Remark:e.note||'', Notes:e.notes||'', Amount:parseFloat(e.amount)||0
+    Note:e.note||'', Amount:parseFloat(e.amount)||0
   }));
   const wsTxns=XLSX.utils.json_to_sheet(txnRows);
 
@@ -6448,19 +6467,7 @@ function exportReportExcel(){
   const groupRows=(window._reportGroupEntries||[]).map(([k,v])=>({[window._reportGroupLabel||'Group']:k, Amount:v}));
   const wsGroup=XLSX.utils.json_to_sheet(groupRows);
 
-  // Sheet 3 (optional): multilevel group → subgroup breakdown
-  let wsNested=null;
-  if(window._reportSubGroupBy&&window._reportNestedMap){
-    const nestedRows=[];
-    (window._reportGroupEntries||[]).forEach(([g])=>{
-      (window._reportNestedMap[g]||[]).forEach(([sk,sv])=>{
-        nestedRows.push({[window._reportGroupLabel||'Group']:g,[window._reportSubGroupLabel||'Sub-group']:sk,Amount:sv});
-      });
-    });
-    if(nestedRows.length)wsNested=XLSX.utils.json_to_sheet(nestedRows);
-  }
-
-  // Sheet 4: summary
+  // Sheet 3: summary
   const wsSummary=XLSX.utils.json_to_sheet([
     {Field:'Period',Value:window._reportRangeLabel||''},
     {Field:'Total Income',Value:income},
@@ -6472,7 +6479,6 @@ function exportReportExcel(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,wsTxns,'Transactions');
   XLSX.utils.book_append_sheet(wb,wsGroup,(window._reportGroupLabel||'Group')+' Breakdown');
-  if(wsNested)XLSX.utils.book_append_sheet(wb,wsNested,(window._reportGroupLabel||'Group')+' x '+(window._reportSubGroupLabel||'Sub'));
   XLSX.utils.book_append_sheet(wb,wsSummary,'Summary');
   XLSX.writeFile(wb,(currentDiaryName||'diary')+'_report.xlsx');
   toast('📊 Excel report exported');
@@ -6487,15 +6493,12 @@ function exportReportPDF(){
   const sorted=[...exps].sort((a,b)=>a.date.localeCompare(b.date));
   const groupRows=window._reportGroupEntries||[];
   const groupLabel=window._reportGroupLabel||'Category';
-  const subGroupBy=window._reportSubGroupBy||'';
-  const subGroupLabel=window._reportSubGroupLabel||'';
-  const nestedMap=window._reportNestedMap||null;
 
   const win=window.open('','_blank');
   if(!win)return toast('❌ Pop-up blocked — allow pop-ups to export PDF');
   win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Expense Report</title>
   <style>
-    body{font-family:'DM Sans',Arial,sans-serif;color:#1a1f36;padding:24px;max-width:1050px;margin:0 auto}
+    body{font-family:'DM Sans',Arial,sans-serif;color:#1a1f36;padding:24px;max-width:900px;margin:0 auto}
     h1{font-family:Georgia,serif;font-size:22px;color:#1a3a6b;margin-bottom:2px}
     .sub{color:#7b82a0;font-size:13px;margin-bottom:20px}
     .stats{display:flex;gap:14px;margin-bottom:22px;flex-wrap:wrap}
@@ -6516,19 +6519,13 @@ function exportReportPDF(){
       <div class="stat"><b>₹${Math.abs(income-spent).toFixed(0)}</b>Net</div>
       <div class="stat"><b>${exps.length}</b>Entries</div>
     </div>
-    <h2>${escH(groupLabel)}${subGroupBy?' → '+escH(subGroupLabel):''} Breakdown</h2>
+    <h2>${escH(groupLabel)} Breakdown</h2>
     <table><thead><tr><th>${escH(groupLabel)}</th><th class="amt">Amount</th></tr></thead><tbody>
-      ${groupRows.map(([k,v])=>{
-        const mainRow=`<tr><td>${escH(k)}</td><td class="amt">₹${v.toFixed(0)}</td></tr>`;
-        const subRows=(nestedMap&&nestedMap[k]?nestedMap[k]:[]).map(([sk,sv])=>
-          `<tr><td style="padding-left:24px;color:#7b82a0;font-size:11.5px">↳ ${escH(sk)}</td><td class="amt" style="color:#7b82a0;font-size:11.5px">₹${sv.toFixed(0)}</td></tr>`
-        ).join('');
-        return mainRow+subRows;
-      }).join('')}
+      ${groupRows.map(([k,v])=>`<tr><td>${escH(k)}</td><td class="amt">₹${v.toFixed(0)}</td></tr>`).join('')}
     </tbody></table>
     <h2>Transaction Detail</h2>
-    <table><thead><tr><th>Date</th><th>Category</th><th>Account</th><th>Mode</th><th>Remark</th><th>Notes</th><th class="amt">Amount</th></tr></thead><tbody>
-      ${sorted.map(e=>`<tr><td>${escH(fmtDate(e.date))}</td><td>${escH(e.category||'—')}</td><td>${escH(e.account||'—')}</td><td>${escH(e.mode||'—')}</td><td style="max-width:150px;white-space:normal;word-break:break-word">${escH(e.note||'')}</td><td style="max-width:150px;white-space:normal;word-break:break-word">${escH(e.notes||'')}</td><td class="amt">₹${Math.abs(parseFloat(e.amount)||0).toFixed(0)}</td></tr>`).join('')}
+    <table><thead><tr><th>Date</th><th>Category</th><th>Account</th><th>Mode</th><th>Note</th><th class="amt">Amount</th></tr></thead><tbody>
+      ${sorted.map(e=>`<tr><td>${escH(fmtDate(e.date))}</td><td>${escH(e.category||'—')}</td><td>${escH(e.account||'—')}</td><td>${escH(e.mode||'—')}</td><td>${escH(e.note||'')}</td><td class="amt">₹${Math.abs(parseFloat(e.amount)||0).toFixed(0)}</td></tr>`).join('')}
     </tbody></table>
     <script>window.onload=()=>{window.print();};<\/script>
   </body></html>`);
@@ -6831,6 +6828,214 @@ function submitContact(){
   if(editingContactId){const c=storage.contacts.find(x=>x.id===editingContactId);if(c)Object.assign(c,{name,phone,email,relation,alias,birthday,anniversary,company,whatsapp,website,address,note,attachments});}
   else{storage.contacts.push({id:uuid(),name,phone,email,relation,alias,birthday,anniversary,company,whatsapp,website,address,note,attachments});}
   closeModal('modal-contact');renderContacts();saveToDrive();
+}
+
+// ── DOCUMENTS (notebook-style: define fields once, then a folder per person) ──
+const DEFAULT_DOC_FIELDS=[
+  {id:'aadhaar',name:'Aadhaar Card',icon:'🪪'},{id:'pan',name:'PAN Card',icon:'💳'},{id:'passport',name:'Passport',icon:'🛂'},
+  {id:'dl',name:'Driving License',icon:'🚗'},{id:'voter',name:'Voter ID',icon:'🗳️'},{id:'ration',name:'Ration Card',icon:'🧾'},
+  {id:'birth',name:'Birth Certificate',icon:'📜'},{id:'bank',name:'Bank Passbook',icon:'🏦'},{id:'insurance',name:'Insurance Policy',icon:'🛡️'},
+  {id:'health',name:'Health Card',icon:'🩺'},{id:'vehicle',name:'Vehicle RC',icon:'🚘'},{id:'property',name:'Property Papers',icon:'🏠'}
+];
+let currentDocFolderId=null, currentDocFieldId=null;
+
+function ensureDocDefaults(){
+  if(!storage.docFields||!storage.docFields.length)storage.docFields=DEFAULT_DOC_FIELDS.map(f=>({...f}));
+  if(!storage.docFolders)storage.docFolders=[];
+}
+
+// ── Folder list (top-level view) ──
+function renderDocuments(){
+  ensureDocDefaults();
+  const detailOpen=currentDocFolderId&&storage.docFolders.find(f=>f.id===currentDocFolderId);
+  document.getElementById('doc-folders-view').style.display=detailOpen?'none':'block';
+  document.getElementById('doc-folder-detail').style.display=detailOpen?'block':'none';
+  if(detailOpen){renderDocFolderDetail();return;}
+  currentDocFolderId=null;
+  const q=(document.getElementById('doc-folder-search')?.value||'').toLowerCase();
+  let folders=[...storage.docFolders].filter(f=>!q||(f.name||'').toLowerCase().includes(q));
+  folders.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  document.getElementById('doc-folders-list').innerHTML=folders.length?folders.map(f=>{
+    const docCount=Object.keys(f.docs||{}).filter(k=>(f.docs[k].attachments||[]).length).length;
+    const total=(storage.docFields||[]).length;
+    return `
+    <div class="card" style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="openDocFolder('${f.id}')">
+      <div style="width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📁</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:14px">${escH(f.name)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${docCount} of ${total} document${total===1?'':'s'} added</div>
+      </div>
+      <div class="icon-btn" onclick="event.stopPropagation();deleteDocFolder('${f.id}')">🗑</div>
+    </div>`;
+  }).join(''):`<div class="empty"><div class="empty-icon">📁</div><p>No folders yet</p><p style="font-size:12px;margin-top:6px;color:var(--text-muted)">Tap ＋ to create one — e.g. "Dad", "Mom", "Self"</p></div>`;
+}
+function openNewDocFolderModal(){
+  document.getElementById('doc-new-folder-name').value='';
+  openModal('modal-new-doc-folder');
+  setTimeout(()=>document.getElementById('doc-new-folder-name')?.focus(),250);
+}
+function submitNewDocFolder(){
+  const name=document.getElementById('doc-new-folder-name').value.trim();
+  if(!name)return toast('Enter a name');
+  ensureDocDefaults();
+  const f={id:uuid(),name,createdAt:todayStr(),docs:{}};
+  storage.docFolders.push(f);
+  closeModal('modal-new-doc-folder');
+  saveToDrive();
+  openDocFolder(f.id);
+}
+async function deleteDocFolder(id){
+  if(!(await showConfirm('Delete this folder and everything inside it?')))return;
+  storage.docFolders=(storage.docFolders||[]).filter(x=>x.id!==id);
+  if(currentDocFolderId===id)currentDocFolderId=null;
+  renderDocuments();saveToDrive();
+}
+function deleteDocFolderCurrent(){ if(currentDocFolderId)deleteDocFolder(currentDocFolderId); }
+
+// ── Folder detail (fields inside one person's folder) ──
+function openDocFolder(id){ currentDocFolderId=id; renderDocuments(); }
+function backToDocFolders(){ currentDocFolderId=null; renderDocuments(); }
+function renderDocFolderDetail(){
+  const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
+  if(!folder){backToDocFolders();return;}
+  document.getElementById('doc-folder-title').textContent='📁 '+folder.name;
+  const fields=storage.docFields||[];
+  document.getElementById('doc-folder-fields-list').innerHTML=fields.length?fields.map(field=>{
+    const d=(folder.docs||{})[field.id];
+    const hasFile=d&&d.attachments&&d.attachments.length;
+    const expired=d&&d.expiry&&d.expiry<todayStr();
+    return `
+    <div class="card" style="padding:12px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="font-size:18px;flex-shrink:0">${field.icon||'📁'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px">${escH(field.name)}</div>
+          ${d&&d.number?`<div style="font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">${escH(d.number)}</div>`:''}
+          ${d&&d.expiry?`<div style="font-size:12px;color:${expired?'var(--danger)':'var(--text-muted)'}">${expired?'⚠️ Expired ':'📅 Expires '}${fmtDate(d.expiry)}</div>`:''}
+          ${d&&d.notes?`<div style="font-size:12px;color:var(--text-mid);margin-top:2px">${escH(d.notes)}</div>`:''}
+          ${!hasFile?'<div style="font-size:11px;color:var(--text-muted);margin-top:2px">No file attached yet</div>':''}
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="icon-btn edit" onclick="openDocFieldModal('${field.id}')" title="${hasFile?'Edit':'Add'}">${hasFile?'✏️':'＋'}</button>
+          ${hasFile?`<button class="icon-btn" onclick="deleteDocEntry('${field.id}')" title="Remove">🗑</button>`:''}
+        </div>
+      </div>
+      ${hasFile?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${d.attachments.map(a=>`
+        <div style="display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 8px;font-size:11.5px">
+          <span style="cursor:pointer;font-weight:600" onclick="viewSavedDocAttachment('${folder.id}','${field.id}','${a.id}')">${a.mime==='application/pdf'?'📄':'🖼️'} ${escH(a.name)}</span>
+          <span style="cursor:pointer" onclick="shareSavedDocAttachment('${folder.id}','${field.id}','${a.id}')" title="Share">📤</span>
+          <span style="cursor:pointer" onclick="downloadSavedDocAttachment('${folder.id}','${field.id}','${a.id}')" title="Download">⬇</span>
+        </div>`).join('')}</div>`:''}
+    </div>`;
+  }).join(''):`<div class="empty"><div class="empty-icon">🏷️</div><p>No fields yet</p><p style="font-size:12px;margin-top:6px;color:var(--text-muted)">Tap ⚙️ Manage Fields on the folders screen to add some</p></div>`;
+}
+
+// ── Add/edit a single field's document within the open folder ──
+function openDocFieldModal(fieldId){
+  if(!currentDocFolderId)return;
+  currentDocFieldId=fieldId;
+  const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
+  const field=(storage.docFields||[]).find(f=>f.id===fieldId);
+  const d=folder&&folder.docs&&folder.docs[fieldId];
+  document.getElementById('document-modal-title').textContent=(field?field.icon+' '+field.name:'🪪 Document')+' — '+(folder?folder.name:'');
+  document.getElementById('doc-number').value=(d&&d.number)||'';
+  document.getElementById('doc-expiry').value=(d&&d.expiry)||'';
+  document.getElementById('doc-notes').value=(d&&d.notes)||'';
+  initAttachUI('document',(d&&d.attachments)||[]);
+  openModal('modal-document');
+}
+function submitDocument(){
+  if(!currentDocFolderId||!currentDocFieldId)return;
+  const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
+  if(!folder)return;
+  const number=document.getElementById('doc-number').value.trim();
+  const expiry=document.getElementById('doc-expiry').value||'';
+  const notes=document.getElementById('doc-notes').value.trim();
+  const attachments=getAttachStage('document');
+  folder.docs=folder.docs||{};
+  folder.docs[currentDocFieldId]={number,expiry,notes,attachments};
+  closeModal('modal-document');
+  renderDocuments();
+  saveToDrive();
+}
+async function deleteDocEntry(fieldId){
+  const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
+  if(!folder)return;
+  if(!(await showConfirm('Remove this document?')))return;
+  if(folder.docs)delete folder.docs[fieldId];
+  renderDocuments();saveToDrive();
+}
+function viewSavedDocAttachment(folderId,fieldId,attId){
+  const folder=(storage.docFolders||[]).find(f=>f.id===folderId); if(!folder)return;
+  const d=folder.docs&&folder.docs[fieldId]; if(!d)return;
+  const a=(d.attachments||[]).find(x=>x.id===attId); if(!a)return;
+  if(a.mime==='application/pdf'){openDataUrlAsBlob(a.dataUrl,a.name);return;}
+  const w=window.open('about:blank');
+  if(!w){toast('⚠️ Allow popups to view attachment');return;}
+  w.document.write(`<title>${escH(a.name)}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${a.dataUrl}" style="max-width:100%;max-height:100vh"/></body>`);
+}
+function downloadSavedDocAttachment(folderId,fieldId,attId){
+  const folder=(storage.docFolders||[]).find(f=>f.id===folderId); if(!folder)return;
+  const d=folder.docs&&folder.docs[fieldId]; if(!d)return;
+  const a=(d.attachments||[]).find(x=>x.id===attId); if(!a)return;
+  openDataUrlAsBlob(a.dataUrl,a.name,true);
+}
+function shareSavedDocAttachment(folderId,fieldId,attId){
+  const folder=(storage.docFolders||[]).find(f=>f.id===folderId); if(!folder)return;
+  const d=folder.docs&&folder.docs[fieldId]; if(!d)return;
+  const a=(d.attachments||[]).find(x=>x.id===attId); if(!a)return;
+  shareAttachment(a);
+}
+
+// ── Manage Fields modal ──
+function openManageFieldsModal(){
+  ensureDocDefaults();
+  renderDocFieldsManageList();
+  document.getElementById('doc-new-field-name').value='';
+  openModal('modal-doc-fields');
+}
+function renderDocFieldsManageList(){
+  const fields=storage.docFields||[];
+  document.getElementById('doc-fields-manage-list').innerHTML=fields.length?fields.map(f=>`
+    <div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px">
+      <span style="flex:1;font-size:13.5px;font-weight:600">${f.icon||'📁'} ${escH(f.name)}</span>
+      <span class="icon-btn" onclick="removeDocField('${f.id}')" title="Remove field">🗑</span>
+    </div>`).join(''):'<div style="font-size:12.5px;color:var(--text-muted)">No fields yet — add one below.</div>';
+}
+function addDocField(){
+  const input=document.getElementById('doc-new-field-name');
+  const name=input.value.trim();
+  if(!name)return toast('Enter a field name');
+  ensureDocDefaults();
+  if(storage.docFields.some(f=>f.name.toLowerCase()===name.toLowerCase())){toast('That field already exists');return;}
+  storage.docFields.push({id:uuid(),name,icon:'📁'});
+  input.value='';
+  renderDocFieldsManageList();
+  saveToDrive();
+}
+async function removeDocField(fieldId){
+  if(!(await showConfirm('Remove this field? Any documents already saved under it stay safe and reappear if you re-add the same field name.')))return;
+  storage.docFields=(storage.docFields||[]).filter(f=>f.id!==fieldId);
+  renderDocFieldsManageList();
+  saveToDrive();
+}
+
+// ── Share (Web Share API — falls back to download if the browser can't share files) ──
+async function shareAttachment(a){
+  if(!a||!a.dataUrl){toast('No file to share');return;}
+  try{
+    const res=await fetch(a.dataUrl);
+    const blob=await res.blob();
+    const file=new File([blob],a.name||'attachment',{type:a.mime||blob.type||'application/octet-stream'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:a.name||'Attachment'});
+    }else{
+      toast('⚠️ Sharing files isn\'t supported on this browser — downloading instead');
+      downloadAttachment(a);
+    }
+  }catch(e){
+    if(e&&e.name!=='AbortError')toast('❌ Could not share file');
+  }
 }
 
 // ── SEND WISHES (birthday / anniversary template message via WhatsApp) ──
@@ -8460,6 +8665,17 @@ function buildSearchResults(q,typeFilter){
         results.push({type:'Contact',date:'',snippet:c.name+(c.phone?' · '+c.phone:'')+(c.email?' · '+c.email:''),rawText:hay,score:scoreResult(hay,q),action:()=>goToItem('contacts','contact-'+c.id,q)});
     });
   }
+  if(typeFilter==='all'||typeFilter==='documents'){
+    (storage.docFolders||[]).forEach(folder=>{
+      Object.entries(folder.docs||{}).forEach(([fieldId,d])=>{
+        const field=(storage.docFields||[]).find(x=>x.id===fieldId);
+        const fieldName=field?field.name:'Document';
+        const hay=[fieldName,folder.name||'',d.number||'',d.notes||''].join(' ');
+        if(matches(hay))
+          results.push({type:'Document',date:d.expiry||'',snippet:fieldName+' — '+folder.name+(d.number?' · '+d.number:''),rawText:hay,score:scoreResult(hay,q),action:()=>{navTo('documents');openDocFolder(folder.id);}});
+      });
+    });
+  }
   if(typeFilter==='all'||typeFilter==='notes'){
     (storage.sticky_notes||[]).forEach(n=>{
       if(!passesDateFilter(n.created||''))return;
@@ -8505,7 +8721,7 @@ function buildSearchResults(q,typeFilter){
 }
 
 function renderSearchResults(results,q,container){
-  const typeBadgeColors={Diary:'var(--primary)',Task:'var(--accent)',Expense:'var(--danger)',Contact:'#7b1fa2',Note:'#f57f17',Notebook:'#0277bd',Checklist:'#2e7d32',Project:'#4527a0'};
+  const typeBadgeColors={Diary:'var(--primary)',Task:'var(--accent)',Expense:'var(--danger)',Contact:'#7b1fa2',Document:'#00695c',Note:'#f57f17',Notebook:'#0277bd',Checklist:'#2e7d32',Project:'#4527a0'};
   container.innerHTML=results.length
     ?results.map((r,i)=>{
         const snippetHtml=highlightTerms(escH(r.snippet),q);
@@ -8663,11 +8879,12 @@ async function submitLocalLogin(){
       return;
     }
     storage=JSON.parse(json);
-    ['entries','todos','lists','expenses','contacts','sticky_notes','notebooks','projects','secret_entries'].forEach(k=>{
+    ['entries','todos','lists','expenses','contacts','docFolders','sticky_notes','notebooks','projects','secret_entries'].forEach(k=>{
       if(!storage[k])storage[k]=(k==='entries'||k==='notebooks'||k==='secret_entries'?{}:[]);
     });
     storage.entries=storage.entries||{};storage.notebooks=storage.notebooks||{};
     if(!storage.expLists)storage.expLists={cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]};
+    if(!storage.docFields||!storage.docFields.length)storage.docFields=DEFAULT_DOC_FIELDS.map(f=>({...f}));
     currentDiaryName=localEncFile.name.replace('.enc','');
     currentPassword=pw;
     driveFileId=null;
