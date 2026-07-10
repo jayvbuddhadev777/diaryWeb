@@ -293,6 +293,9 @@ html, body {
   background: var(--surface);
   border-radius: 24px 24px 0 0;
   padding: 20px 20px calc(24px + var(--safe-bottom));
+  max-height: 85dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .more-sheet h3 { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 700; margin-bottom: 16px; }
 .more-item {
@@ -1534,6 +1537,11 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
                 <option value="mode">Payment Mode</option>
                 <option value="date">Date (day)</option>
                 <option value="month">Month</option>
+                <option value="category_mode">Category + Mode</option>
+                <option value="category_account">Category + Account</option>
+                <option value="account_mode">Account + Mode</option>
+                <option value="month_category">Month + Category</option>
+                <option value="date_category">Date + Category</option>
               </select>
             </div>
           </div>
@@ -1859,7 +1867,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   <div class="more-backdrop" onclick="closeMoreMenu()"></div>
   <div class="more-sheet">
     <div class="modal-handle"></div>
-    <h3>More</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin-bottom:0">More</h3>
+      <button onclick="closeMoreMenu()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;color:var(--text);font-family:'DM Sans',sans-serif">✕ Close</button>
+    </div>
     <div class="more-item" style="cursor:default" onclick="event.stopPropagation()">
       <span class="more-item-icon">🔤</span>Text Size
       <div class="font-size-ctrl" style="margin-left:auto">
@@ -2269,6 +2280,19 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-new-doc-folder')">Cancel</button>
       <button class="btn btn-primary" id="doc-folder-modal-submit-btn" onclick="submitNewDocFolder()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Document Field Picker (select which fields to add to a folder) -->
+<div class="modal-overlay" id="modal-doc-field-picker">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>📋 Add Document Type</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Select which document types to add to this folder</p>
+    <div id="doc-field-picker-list" style="display:flex;flex-direction:column;gap:8px;max-height:50dvh;overflow-y:auto"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-doc-field-picker')">Close</button>
     </div>
   </div>
 </div>
@@ -6489,7 +6513,7 @@ function renderReport(){
 
   // Group-by chart (spending only) — grouped by whichever field the user picked
   const groupBy=document.getElementById('rep-groupby')?.value||'category';
-  const GROUP_LABELS={category:'Category',category_subcategory:'Category → Sub-category',subcategory:'Sub-category',account:'Account',mode:'Payment Mode',date:'Date',month:'Month'};
+  const GROUP_LABELS={category:'Category',category_subcategory:'Category → Sub-category',subcategory:'Sub-category',account:'Account',mode:'Payment Mode',date:'Date',month:'Month',category_mode:'Category + Mode',category_account:'Category + Account',account_mode:'Account + Mode',month_category:'Month + Category',date_category:'Date + Category'};
   function groupKeyFor(e){
     if(groupBy==='account')return e.account||'—';
     if(groupBy==='mode')return e.mode||'—';
@@ -6497,11 +6521,18 @@ function renderReport(){
     if(groupBy==='month')return e.date?e.date.slice(0,7):'—';
     if(groupBy==='subcategory')return e.subcategory||'—';
     if(groupBy==='category_subcategory')return (e.category||'Other')+(e.subcategory?' › '+e.subcategory:'');
+    if(groupBy==='category_mode')return (e.category||'Other')+' · '+(e.mode||'—');
+    if(groupBy==='category_account')return (e.category||'Other')+' · '+(e.account||'—');
+    if(groupBy==='account_mode')return (e.account||'—')+' · '+(e.mode||'—');
+    if(groupBy==='month_category')return (e.date?e.date.slice(0,7):'—')+' · '+(e.category||'Other');
+    if(groupBy==='date_category')return (e.date||'—')+' · '+(e.category||'Other');
     return e.category||'Other';
   }
   function groupKeyDisplay(k){
     if(groupBy==='date')return fmtDate(k);
     if(groupBy==='month'){const [y,m]=k.split('-');return new Date(y,m-1,1).toLocaleDateString('en-IN',{month:'short',year:'numeric'});}
+    if(groupBy==='month_category'){const parts=k.split(' · ');const [y,m]=(parts[0]||'').split('-');return new Date(y,m-1,1).toLocaleDateString('en-IN',{month:'short',year:'numeric'})+' · '+parts[1];}
+    if(groupBy==='date_category'){const parts=k.split(' · ');return fmtDate(parts[0])+' · '+parts[1];}
     return k;
   }
   document.getElementById('rep-chart-title').textContent='💰 Spending by '+GROUP_LABELS[groupBy];
@@ -7023,7 +7054,7 @@ function renderDocuments(){
   document.getElementById('doc-folders-list').innerHTML=folders.length?folders.map(f=>{
     const isLocked=f.locked&&!_docUnlockedIds.has(f.id);
     const docCount=Object.keys(f.docs||{}).filter(k=>(f.docs[k].attachments||[]).length).length;
-    const total=(storage.docFields||[]).length;
+    const total=(f.selectedFields||[]).length||Object.keys(f.docs||{}).length;
     if(isLocked){
       return `
       <div class="card" style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="openDocFolder('${f.id}')">
@@ -7158,7 +7189,7 @@ function submitNewDocFolder(){
     return;
   }
   ensureDocDefaults();
-  const f={id:uuid(),name,createdAt:todayStr(),docs:{}};
+  const f={id:uuid(),name,createdAt:todayStr(),docs:{},selectedFields:[]};
   storage.docFolders.push(f);
   closeModal('modal-new-doc-folder');
   saveToDrive();
@@ -7185,15 +7216,21 @@ function backToDocFolders(){ currentDocFolderId=null; renderDocuments(); }
 function renderDocFolderDetail(){
   const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
   if(!folder){backToDocFolders();return;}
+  // Ensure selectedFields exists (older folders won't have it)
+  if(!folder.selectedFields)folder.selectedFields=(Object.keys(folder.docs||{}).length?Object.keys(folder.docs):[]);
   document.getElementById('doc-folder-title').textContent='📁 '+folder.name;
   const lockBtn=document.getElementById('doc-lock-toggle-btn');
   if(lockBtn){lockBtn.textContent=folder.locked?'🔒':'🔓';lockBtn.title=folder.locked?'Change folder lock':'Lock this folder';}
   const lockNowBtn=document.getElementById('doc-lock-now-btn');
   if(lockNowBtn)lockNowBtn.style.display=folder.locked?'inline-flex':'none';
-  const fields=storage.docFields||[];
+  const allFields=storage.docFields||[];
+  // Only show fields that are selected for this folder
+  const fields=allFields.filter(f=>folder.selectedFields.includes(f.id));
   const toggleBtn=document.getElementById('doc-collapse-all-btn');
   if(toggleBtn)toggleBtn.style.display=fields.length?'inline-flex':'none';
-  document.getElementById('doc-folder-fields-list').innerHTML=fields.length?fields.map(field=>{
+  // Available fields not yet added to this folder
+  const availableFields=allFields.filter(f=>!folder.selectedFields.includes(f.id));
+  let html=fields.length?fields.map(field=>{
     const d=(folder.docs||{})[field.id];
     const hasFile=d&&d.attachments&&d.attachments.length;
     const expired=d&&d.expiry&&d.expiry<todayStr();
@@ -7214,7 +7251,8 @@ function renderDocFolderDetail(){
         </div>
         <div style="display:flex;gap:4px;flex-shrink:0">
           <button class="icon-btn edit" onclick="openDocFieldModal('${field.id}')" title="${hasFile?'Edit':'Add'}">${hasFile?'✏️':'＋'}</button>
-          ${hasFile?`<button class="icon-btn" onclick="deleteDocEntry('${field.id}')" title="Remove">🗑</button>`:''}
+          ${hasFile?`<button class="icon-btn" onclick="deleteDocEntry('${field.id}')" title="Remove doc">🗑</button>`:''}
+          <button class="icon-btn" onclick="removeDocFieldFromFolder('${field.id}')" title="Remove field from folder" style="font-size:11px;color:var(--text-muted)">✕</button>
         </div>
       </div>
       ${hasFile&&!collapsed?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${d.attachments.map(a=>`
@@ -7224,7 +7262,52 @@ function renderDocFolderDetail(){
           <span style="cursor:pointer" onclick="downloadSavedDocAttachment('${folder.id}','${field.id}','${a.id}')" title="Download">⬇</span>
         </div>`).join('')}</div>`:''}
     </div>`;
-  }).join(''):`<div class="empty"><div class="empty-icon">🏷️</div><p>No fields yet</p><p style="font-size:12px;margin-top:6px;color:var(--text-muted)">Tap ⚙️ Manage Fields on the folders screen to add some</p></div>`;
+  }).join(''):`<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No fields added yet — tap below to add document types</div>`;
+  // Add field picker button
+  html+=`<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+    <button class="btn btn-secondary" onclick="openDocFieldPicker()">＋ Add Document Type</button>
+  </div>`;
+  document.getElementById('doc-folder-fields-list').innerHTML=html;
+}
+
+// Add a field to the current folder
+function openDocFieldPicker(){
+  const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
+  if(!folder)return;
+  if(!folder.selectedFields)folder.selectedFields=[];
+  const allFields=storage.docFields||[];
+  const available=allFields.filter(f=>!folder.selectedFields.includes(f.id));
+  if(!available.length){toast('All document types already added to this folder');return;}
+  // Show a picker modal
+  const html=available.map(f=>`
+    <div onclick="addDocFieldToFolder('${f.id}')" style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:background 0.12s" onmousedown="this.style.background='var(--primary-light)'">
+      <span style="font-size:20px">${f.icon||'📁'}</span>
+      <span style="font-weight:600;font-size:14px">${escH(f.name)}</span>
+    </div>`).join('');
+  document.getElementById('doc-field-picker-list').innerHTML=html;
+  openModal('modal-doc-field-picker');
+}
+function addDocFieldToFolder(fieldId){
+  const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
+  if(!folder)return;
+  if(!folder.selectedFields)folder.selectedFields=[];
+  if(!folder.selectedFields.includes(fieldId))folder.selectedFields.push(fieldId);
+  closeModal('modal-doc-field-picker');
+  renderDocFolderDetail();
+  saveToDrive();
+}
+function removeDocFieldFromFolder(fieldId){
+  const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
+  if(!folder)return;
+  if(!folder.selectedFields)return;
+  // Check if there's data for this field
+  const hasData=folder.docs&&folder.docs[fieldId]&&(folder.docs[fieldId].attachments||[]).length;
+  if(hasData){
+    if(!confirm('This field has documents attached. Remove it from this folder? (Data will be kept but hidden)'))return;
+  }
+  folder.selectedFields=folder.selectedFields.filter(id=>id!==fieldId);
+  renderDocFolderDetail();
+  saveToDrive();
 }
 function toggleDocFieldCollapse(fieldId){
   if(docFieldsCollapsed.has(fieldId))docFieldsCollapsed.delete(fieldId);
