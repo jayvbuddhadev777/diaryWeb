@@ -2224,16 +2224,20 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <div class="form-group"><label class="form-label">Expiry Date</label><input type="date" class="form-input" id="doc-expiry" onchange="onDocExpiryChange()"/></div>
     </div>
     <div class="form-group" id="doc-reminder-wrap" style="display:none">
-      <label class="form-label">🔔 Remind me</label>
-      <select class="form-input" id="doc-reminder-days">
-        <option value="">No reminder</option>
-        <option value="7">7 days before it expires</option>
-        <option value="15">15 days before it expires</option>
-        <option value="30">1 month before it expires</option>
-        <option value="60">2 months before it expires</option>
-        <option value="90">3 months before it expires</option>
-      </select>
-      <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px">Adds a task with a reminder so it shows up in Tasks & notifications.</div>
+      <label class="form-label">🔔 Reminders (multiple allowed)</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <button type="button" class="attach-btn" onclick="addDocReminder(7)">7 days before</button>
+        <button type="button" class="attach-btn" onclick="addDocReminder(15)">15 days before</button>
+        <button type="button" class="attach-btn" onclick="addDocReminder(30)">1 month before</button>
+        <button type="button" class="attach-btn" onclick="addDocReminder(60)">2 months before</button>
+        <button type="button" class="attach-btn" onclick="addDocReminder(90)">3 months before</button>
+      </div>
+      <div id="doc-reminder-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="number" min="1" class="form-input" id="doc-reminder-custom" placeholder="Custom days" style="width:110px;flex:none;padding:8px 10px;font-size:13px"/>
+        <button type="button" class="attach-btn" onclick="addDocReminderCustom()">＋ Add</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px">Each reminder creates a task notification before the expiry date.</div>
     </div>
     <div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-input" id="doc-notes" placeholder="Optional"/></div>
     <div class="form-group">
@@ -3125,7 +3129,7 @@ let currentDate=todayStr(),calViewDate=new Date();
 let dirty=false,autoSaveTimer=null,taskFilter='all',_savingNow=false,taskSortDir='desc';
 // Auto-sync / conflict / idle-lock state
 let lastKnownRemoteModified=null; // ISO timestamp of the remote .enc file as of our last load/save
-const AUTO_SYNC_MS=15000;         // background sync-poll cadence (push pending edits / pull remote changes)
+const AUTO_SYNC_MS=30000;         // background sync-poll cadence (push pending edits / pull remote changes)
 const IDLE_LOCK_MS=10*60*1000;    // auto-lock after 10 min of inactivity
 let idleLockTimer=null;
 let editingTaskId=null,editingExpenseId=null,editingContactId=null;
@@ -4612,7 +4616,7 @@ function markDirty(){
   dirty=true;document.getElementById('save-status').textContent='Unsaved…';
   saveEntryInMemory(true); // true = skip the calendar rebuild here; typing shouldn't pay for it on every keystroke
   resetIdleLockTimer();
-  clearTimeout(autoSaveTimer);autoSaveTimer=setTimeout(saveEntryAndDrive,5000);
+  clearTimeout(autoSaveTimer);autoSaveTimer=setTimeout(saveEntryAndDrive,30000);
   clearTimeout(window._calRefreshTimer);window._calRefreshTimer=setTimeout(renderCalHighlights,400);
 }
 
@@ -7244,7 +7248,7 @@ function renderDocFolderDetail(){
           <div style="font-weight:700;font-size:14px">${escH(field.name)}</div>
           ${collapsed?`<div style="font-size:11.5px;color:${hasFile?'var(--text-muted)':'var(--text-muted)'}">${hasFile?'✅ Added':'— Not added'}${d&&d.expiry?(expired?' · ⚠️ Expired':' · 📅 '+fmtDate(d.expiry)):''}</div>`:`
           ${d&&d.number?`<div style="font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">${escH(d.number)}</div>`:''}
-          ${d&&d.expiry?`<div style="font-size:12px;color:${expired?'var(--danger)':'var(--text-muted)'}">${expired?'⚠️ Expired ':'📅 Expires '}${fmtDate(d.expiry)}${d.reminderDays?` · 🔔 ${d.reminderDays}d before`:''}</div>`:''}
+          ${d&&d.expiry?`<div style="font-size:12px;color:${expired?'var(--danger)':'var(--text-muted)'}">${expired?'⚠️ Expired ':'📅 Expires '}${fmtDate(d.expiry)}${d.reminders&&d.reminders.length?` · 🔔 ${d.reminders.map(r=>r.days>=30?Math.round(r.days/30)+'mo':r.days+'d').join(', ')} before`:(d.reminderDays?` · 🔔 ${d.reminderDays}d before`:'')}</div>`:''}
           ${d&&d.notes?`<div style="font-size:12px;color:var(--text-mid);margin-top:2px">${escH(d.notes)}</div>`:''}
           ${!hasFile?'<div style="font-size:11px;color:var(--text-muted);margin-top:2px">No file attached yet</div>':''}
           `}
@@ -7323,11 +7327,50 @@ function toggleAllDocFieldsCollapse(){
 }
 
 // ── Add/edit a single field's document within the open folder ──
+let _docReminderDraft=[]; // array of {days: number}
+
 function onDocExpiryChange(){
   const has=!!document.getElementById('doc-expiry').value;
   document.getElementById('doc-reminder-wrap').style.display=has?'block':'none';
-  if(!has)document.getElementById('doc-reminder-days').value='';
+  if(!has){_docReminderDraft=[];renderDocReminderChips();}
 }
+function addDocReminder(days){
+  if(_docReminderDraft.some(r=>r.days===days)){toast('Already added');return;}
+  if(_docReminderDraft.length>=8){toast('Max 8 reminders');return;}
+  _docReminderDraft.push({days});
+  _docReminderDraft.sort((a,b)=>a.days-b.days);
+  renderDocReminderChips();
+}
+function addDocReminderCustom(){
+  const input=document.getElementById('doc-reminder-custom');
+  const days=parseInt(input.value,10);
+  if(!days||days<1){toast('Enter a valid number of days');return;}
+  addDocReminder(days);
+  input.value='';
+}
+function removeDocReminder(days){
+  _docReminderDraft=_docReminderDraft.filter(r=>r.days!==days);
+  renderDocReminderChips();
+}
+function renderDocReminderChips(){
+  const wrap=document.getElementById('doc-reminder-chips');
+  if(!wrap)return;
+  const expiry=document.getElementById('doc-expiry')?.value;
+  wrap.innerHTML=_docReminderDraft.length?_docReminderDraft.map(r=>{
+    const label=r.days>=30?(r.days>=60?Math.round(r.days/30)+' months':r.days===30?'1 month':r.days+' days'):r.days+' days';
+    const dateStr=expiry?fmtDate(computeDocReminderDate(expiry,r.days)):'';
+    return `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:5px 10px;font-size:12px;font-weight:600">
+      🔔 ${label} before${dateStr?' · '+dateStr:''}
+      <span onclick="removeDocReminder(${r.days})" style="cursor:pointer;color:var(--text-muted);font-weight:700">×</span>
+    </span>`;
+  }).join(''):'<span style="font-size:12px;color:var(--text-muted)">No reminders set — tap above to add</span>';
+}
+function computeDocReminderDate(expiryStr,days){
+  const d=new Date(expiryStr+'T00:00:00');
+  d.setDate(d.getDate()-days);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 function openDocFieldModal(fieldId){
   if(!currentDocFolderId)return;
   currentDocFieldId=fieldId;
@@ -7338,24 +7381,32 @@ function openDocFieldModal(fieldId){
   document.getElementById('doc-number').value=(d&&d.number)||'';
   document.getElementById('doc-expiry').value=(d&&d.expiry)||'';
   document.getElementById('doc-notes').value=(d&&d.notes)||'';
-  document.getElementById('doc-reminder-days').value=(d&&d.reminderDays)?String(d.reminderDays):'';
+  // Load reminders: support both old single reminderDays and new array format
+  if(d&&d.reminders&&Array.isArray(d.reminders)){
+    _docReminderDraft=d.reminders.map(r=>({days:r.days}));
+  } else if(d&&d.reminderDays){
+    _docReminderDraft=[{days:Number(d.reminderDays)}];
+  } else {
+    _docReminderDraft=[];
+  }
   onDocExpiryChange();
+  renderDocReminderChips();
   initAttachUI('document',(d&&d.attachments)||[]);
   openModal('modal-document');
 }
-// Creates/updates/removes a linked task+reminder in Tasks so a document's expiry
-// reminder shows up wherever task reminders already surface (Tasks list, Dashboard,
-// Calendar, notifications) instead of building a second, parallel reminder system.
+// Creates/updates/removes linked task+reminders in Tasks so document expiry
+// reminders show up wherever task reminders surface (Tasks list, Dashboard,
+// Calendar, notifications).
 function syncDocReminderTask(folder,fieldId,doc,fieldName){
   storage.todos=storage.todos||[];
   const linkId=folder.id+'::'+fieldId;
   const existing=storage.todos.find(t=>t.docLink===linkId);
-  if(!doc.expiry||!doc.reminderDays){
+  const reminders=(doc.reminders||[]).map(r=>({id:uuid(),value:r.days,unit:'days'}));
+  if(!doc.expiry||!reminders.length){
     if(existing)storage.todos=storage.todos.filter(t=>t.docLink!==linkId);
     return;
   }
   const text='🪪 '+fieldName+' expiring — '+folder.name;
-  const reminders=[{id:(existing&&existing.reminders&&existing.reminders[0]&&existing.reminders[0].id)||uuid(),value:Number(doc.reminderDays),unit:'days'}];
   if(existing){
     existing.text=text;existing.due=doc.expiry;existing.reminders=reminders;
   }else{
@@ -7370,10 +7421,10 @@ function submitDocument(){
   const number=document.getElementById('doc-number').value.trim();
   const expiry=document.getElementById('doc-expiry').value||'';
   const notes=document.getElementById('doc-notes').value.trim();
-  const reminderDays=document.getElementById('doc-reminder-days').value||'';
+  const reminders=_docReminderDraft.map(r=>({days:r.days}));
   const attachments=getAttachStage('document');
   folder.docs=folder.docs||{};
-  const doc={number,expiry,notes,attachments,reminderDays};
+  const doc={number,expiry,notes,attachments,reminders};
   folder.docs[currentDocFieldId]=doc;
   syncDocReminderTask(folder,currentDocFieldId,doc,field?field.name:'Document');
   closeModal('modal-document');
@@ -7920,7 +7971,7 @@ function markNbDirty(){
   flushNbPageToMemory();
   const st=document.getElementById('nb-save-status');if(st)st.textContent='Saving…';
   clearTimeout(nbAutoSaveTimer);
-  nbAutoSaveTimer=setTimeout(saveNbPageToDrive,2500);
+  nbAutoSaveTimer=setTimeout(saveNbPageToDrive,30000);
 }
 async function saveNbPageToDrive(){
   if(!nbDirty)return;
