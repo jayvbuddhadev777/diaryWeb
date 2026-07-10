@@ -1,7 +1,7 @@
 // Secure Diary — Service Worker
 // Caches the app shell so it works offline after first load.
 
-const CACHE = 'secure-diary-v18';
+const CACHE = 'secure-diary-v21';
 
 // Files to cache on install (the app shell)
 const SHELL = [
@@ -48,21 +48,37 @@ self.addEventListener('fetch', e => {
     return; // bypass SW
   }
 
-  // Navigations and the app HTML itself go network-first: if you ship a fix,
-  // people online should actually get it instead of being stuck on whatever
-  // was cached at first install. Offline (or a slow/broken network), fall
-  // straight back to the cached shell so the app still opens.
+  // Navigations and the app HTML itself: previously network-first, meaning every
+  // single load — including unlock — sat there waiting on the network even when a
+  // perfectly good cached shell was sitting right there. That's the main cause of
+  // slow unlock/load. Now: race the network against a short timeout. If the cache
+  // already has a copy and the network hasn't answered within that window, serve
+  // the cached shell immediately so the app opens right away, then keep the network
+  // fetch running in the background to refresh the cache for next time (so people
+  // online still get shipped fixes, just without blocking this load on them).
   if (e.request.mode === 'navigate' || url.pathname.endsWith('/index.html')) {
     e.respondWith(
-      fetch(e.request).then(response => {
-        if (response && response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
+      caches.match(e.request).then(cached => {
+        const networkFetch = fetch(e.request).then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE).then(c => c.put(e.request, clone));
+          }
+          return response;
+        }).catch(() => null);
+
+        if (!cached) {
+          // Nothing cached yet (first ever load) — have to wait on the network.
+          return networkFetch.then(r => r || caches.match('/index.html'));
         }
-        return response;
-      }).catch(() =>
-        caches.match(e.request).then(cached => cached || caches.match('/index.html'))
-      )
+
+        // Have a cached copy: give the network a brief window to beat it, but
+        // don't block the whole load on a slow/flaky connection.
+        return Promise.race([
+          networkFetch.then(r => r || cached),
+          new Promise(resolve => setTimeout(() => resolve(cached), 800))
+        ]);
+      })
     );
     return;
   }

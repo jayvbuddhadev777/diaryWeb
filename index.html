@@ -689,16 +689,24 @@ mark.nb-find-hl.nb-find-hl-active { background:#ff9800; color:#1a1f36; box-shado
   backdrop-filter: blur(3px);
 }
 .modal-overlay.open { display: flex; }
+#modal-confirm { z-index: 750; }
 .modal {
   background: var(--surface);
   border-radius: 24px 24px 0 0;
   padding: 24px 20px calc(24px + var(--safe-bottom));
   width: 100%;
+  max-height: 92vh;   /* fallback for engines without dvh support */
   max-height: 92dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   animation: sheetUp 0.25s cubic-bezier(0.4,0,0.2,1);
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
+.modal::-webkit-scrollbar { width: 5px; }
+.modal::-webkit-scrollbar-track { background: transparent; }
+.modal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 @keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .modal-handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 20px; }
 .modal h2 { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 700; margin-bottom: 18px; }
@@ -1049,6 +1057,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   }
   /* When keyboard open, allow modal to shrink */
   .modal {
+    max-height: 85vh;  /* fallback for engines without dvh support */
     max-height: 85dvh;
   }
 }
@@ -1511,9 +1520,15 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
               <select class="form-input" id="rep-category" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()"><option value="">All categories</option></select>
             </div>
             <div style="flex:1;min-width:130px">
+              <div class="form-label" style="font-size:10px">Sub-category</div>
+              <select class="form-input" id="rep-subcategory" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()"><option value="">All sub-categories</option></select>
+            </div>
+            <div style="flex:1;min-width:130px">
               <div class="form-label" style="font-size:10px">Group By</div>
               <select class="form-input" id="rep-groupby" style="padding:8px 10px;font-size:13px;width:100%" onchange="renderReport()">
                 <option value="category">Category</option>
+                <option value="category_subcategory">Category → Sub-category</option>
+                <option value="subcategory">Sub-category</option>
                 <option value="account">Account</option>
                 <option value="mode">Payment Mode</option>
                 <option value="date">Date (day)</option>
@@ -1584,7 +1599,10 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
           <button class="btn btn-secondary" style="padding:8px 14px;font-size:12.5px;margin-bottom:6px" onclick="backToDocFolders()">← All Folders</button>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <h3 id="doc-folder-title" style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;margin:0"></h3>
-            <button class="icon-btn" onclick="deleteDocFolderCurrent()" title="Delete folder">🗑</button>
+            <div style="display:flex;gap:4px;align-items:center">
+              <button id="doc-collapse-all-btn" class="btn btn-secondary" style="padding:6px 10px;font-size:11.5px" onclick="toggleAllDocFieldsCollapse()">↕️ Collapse/Expand All</button>
+              <button class="icon-btn" onclick="deleteDocFolderCurrent()" title="Delete folder">🗑</button>
+            </div>
           </div>
           <div id="doc-folder-fields-list" style="display:flex;flex-direction:column;gap:8px"></div>
         </div>
@@ -1816,6 +1834,9 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       <button class="nav-item" id="bn-lists" onclick="navTo('lists')">
         <span class="nav-icon">📋</span>Lists
       </button>
+      <button class="nav-item" id="bn-documents" onclick="navTo('documents')">
+        <span class="nav-icon">🪪</span>Docs
+      </button>
       <button class="nav-item" id="bn-calendar" onclick="navTo('calendar')">
         <span class="nav-icon">📅</span>Calendar
       </button>
@@ -1847,7 +1868,6 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div class="more-item" onclick="navFromMore('notebook')"><span class="more-item-icon">📚</span>Notebooks</div>
     <div class="more-item" onclick="navFromMore('expenses')"><span class="more-item-icon">💰</span>Expenses</div>
     <div class="more-item" onclick="navFromMore('contacts')"><span class="more-item-icon">📇</span>Contacts</div>
-    <div class="more-item" onclick="navFromMore('documents')"><span class="more-item-icon">🪪</span>Documents</div>
     <div class="more-item" onclick="navFromMore('notes')"><span class="more-item-icon">📌</span>Sticky Notes</div>
     <div class="more-item" onclick="navFromMore('projects')"><span class="more-item-icon">🗂</span>Projects</div>
     <div class="more-item" onclick="navFromMore('gallery')"><span class="more-item-icon">🖼</span>Attachment Gallery</div>
@@ -2057,6 +2077,19 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
       </div>
     </div>
 
+    <!-- Sub-category with manage -->
+    <div class="form-group">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+        <label class="form-label" style="margin-bottom:0">Sub-category</label>
+        <button onclick="openManage('subcat')" style="background:none;border:none;font-size:12px;color:var(--primary);font-weight:700;cursor:pointer">✏️ Manage</button>
+      </div>
+      <div id="exp-subcat-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
+      <div style="position:relative">
+        <input type="text" class="form-input" id="exp-subcategory" placeholder="Optional — e.g. Groceries under Food…" autocomplete="off" oninput="showExpSuggestions('subcat')" onfocus="showExpSuggestions('subcat')" style="font-size:14px;padding:10px 12px"/>
+        <div id="exp-suggest-subcat" class="exp-suggest-list"></div>
+      </div>
+    </div>
+
     <!-- Mode with manage -->
     <div class="form-group">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
@@ -2173,7 +2206,19 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <h2 id="document-modal-title">🪪 Add Document</h2>
     <div class="form-grid">
       <div class="form-group"><label class="form-label">Document / ID Number</label><input type="text" class="form-input" id="doc-number" placeholder="Optional"/></div>
-      <div class="form-group"><label class="form-label">Expiry Date</label><input type="date" class="form-input" id="doc-expiry"/></div>
+      <div class="form-group"><label class="form-label">Expiry Date</label><input type="date" class="form-input" id="doc-expiry" onchange="onDocExpiryChange()"/></div>
+    </div>
+    <div class="form-group" id="doc-reminder-wrap" style="display:none">
+      <label class="form-label">🔔 Remind me</label>
+      <select class="form-input" id="doc-reminder-days">
+        <option value="">No reminder</option>
+        <option value="7">7 days before it expires</option>
+        <option value="15">15 days before it expires</option>
+        <option value="30">1 month before it expires</option>
+        <option value="60">2 months before it expires</option>
+        <option value="90">3 months before it expires</option>
+      </select>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px">Adds a task with a reminder so it shows up in Tasks & notifications.</div>
     </div>
     <div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-input" id="doc-notes" placeholder="Optional"/></div>
     <div class="form-group">
@@ -2203,7 +2248,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
     <div id="doc-fields-manage-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
     <div style="display:flex;gap:8px">
       <input type="text" class="form-input" id="doc-new-field-name" placeholder="e.g. Marriage Certificate" style="flex:1" onkeydown="if(event.key==='Enter')addDocField()"/>
-      <button class="btn btn-primary" style="flex-shrink:0" onclick="addDocField()">＋ Add</button>
+      <button class="btn btn-primary" style="flex-shrink:0;width:auto;white-space:nowrap" onclick="addDocField()">＋ Add</button>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-doc-fields');renderDocuments()">Done</button>
@@ -2814,8 +2859,8 @@ Web Version Diary !
   <div class="modal">
     <div class="modal-handle"></div>
     <h2 id="pin-modal-title">🔓 Enter PIN</h2>
-    <div class="form-group"><input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input" id="pin-input" placeholder="4–6 digit PIN" style="text-align:center;font-size:22px;letter-spacing:6px" maxlength="6"/></div>
-    <div class="form-group" id="pin-confirm-wrap" style="display:none"><input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input" id="pin-confirm-input" placeholder="Confirm PIN" style="text-align:center;font-size:22px;letter-spacing:6px" maxlength="6"/></div>
+    <div class="form-group"><input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input" id="pin-input" placeholder="4–6 digit PIN" style="text-align:center;font-size:22px;letter-spacing:6px" maxlength="6" onkeydown="if(event.key==='Enter'){event.preventDefault();(_pinMode==='setup')?document.getElementById('pin-confirm-input').focus():submitPinModal();}"/></div>
+    <div class="form-group" id="pin-confirm-wrap" style="display:none"><input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input" id="pin-confirm-input" placeholder="Confirm PIN" style="text-align:center;font-size:22px;letter-spacing:6px" maxlength="6" onkeydown="if(event.key==='Enter'){event.preventDefault();submitPinModal();}"/></div>
     <div id="pin-error" style="display:none;color:var(--danger);font-size:12.5px;text-align:center;margin-top:-6px">Incorrect PIN</div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-pin')">Cancel</button>
@@ -3908,7 +3953,7 @@ function collectAllAttachments(){
       push('documents',(field?field.icon+' '+field.name:'🪪 Document')+' — '+folder.name,'',d.attachments);
     });
   });
-  (storage.expenses||[]).forEach(e=>push('expenses','💰 '+(e.category||'Expense')+' · ₹'+e.amount,e.date,e.attachments));
+  (storage.expenses||[]).forEach(e=>push('expenses','💰 '+(e.category||'Expense')+(e.subcategory?' › '+e.subcategory:'')+' · ₹'+e.amount,e.date,e.attachments));
   (storage.todos||[]).forEach(t=>push('tasks','✅ '+t.text,t.due,t.attachments));
   (storage.lists||[]).forEach(l=>(l.items||[]).forEach(i=>push('tasks','📋 '+i.text,'',i.attachments)));
   (storage.sticky_notes||[]).forEach(n=>push('notes','📌 Sticky note',n.created,n.attachments));
@@ -4030,8 +4075,13 @@ async function signInOneDrive(){
 async function showUserAndDiaries(){
   showLoading('Loading…');
   try{
-    const r=await fetch('https://graph.microsoft.com/v1.0/me',{headers:{Authorization:'Bearer '+accessToken}});
-    userProfile=await r.json();
+    // Profile info and the diary list don't depend on each other — fetch both at once
+    // instead of waiting on the profile call before even starting the diary list request.
+    const [profileResp]=await Promise.all([
+      fetch('https://graph.microsoft.com/v1.0/me',{headers:{Authorization:'Bearer '+accessToken}}),
+      loadDiaryList(true)
+    ]);
+    userProfile=await profileResp.json();
     const pic=(userProfile.displayName||'?')[0].toUpperCase();
     // Update g-status but keep g-status-text span in DOM (needed by saveAppId / window.onload)
     const gStatus=document.getElementById('g-status');
@@ -4042,7 +4092,6 @@ async function showUserAndDiaries(){
       '<span class="g-badge">✓</span>';
     document.getElementById('step-signin').style.display='none';
     document.getElementById('step-diaries').style.display='block';
-    await loadDiaryList();
   }catch(e){hideLoading();toast('❌ '+e.message);console.error(e);}
 }
 
@@ -4080,26 +4129,41 @@ async function ensureFreshToken(){
   }catch(e){/* MSAL will throw if interactive login needed — caller handles errors */}
 }
 
-async function ensureFolder(){
-  // AppFolder scope uses special approot — no folder creation needed
+// The AppFolder ("approot") id never changes for a given Microsoft account, but fetching it
+// is a full Graph round-trip that was happening on every single load. Cache it locally so
+// most loads skip straight to listing files — this is the main "unlock/load feels slow" fix.
+function odFolderCacheKey(){return 'sd_od_folder_id';}
+async function ensureFolder(forceRefresh){
+  if(!forceRefresh){
+    const cached=localStorage.getItem(odFolderCacheKey());
+    if(cached){window._odFolderId=cached;return;}
+  }
   try{
     const f=await odReq('https://graph.microsoft.com/v1.0/me/drive/special/approot');
     window._odFolderId=f.id;
+    localStorage.setItem(odFolderCacheKey(),f.id);
   }catch(e){
     console.error('ensureFolder',e);
     throw e;
   }
 }
 
-async function loadDiaryList(){
-  showLoading('Loading diaries…');
+async function loadDiaryList(silent){
+  if(!silent)showLoading('Loading diaries…');
   try{
     await ensureFolder();
-    const r=await odReq('https://graph.microsoft.com/v1.0/me/drive/items/'+window._odFolderId+'/children?$select=id,name,lastModifiedDateTime&$orderby=lastModifiedDateTime+desc');
+    let r;
+    try{
+      r=await odReq('https://graph.microsoft.com/v1.0/me/drive/items/'+window._odFolderId+'/children?$select=id,name,lastModifiedDateTime&$orderby=lastModifiedDateTime+desc');
+    }catch(innerErr){
+      // Cached folder id may be stale (e.g. account switch) — refetch once and retry before giving up.
+      await ensureFolder(true);
+      r=await odReq('https://graph.microsoft.com/v1.0/me/drive/items/'+window._odFolderId+'/children?$select=id,name,lastModifiedDateTime&$orderby=lastModifiedDateTime+desc');
+    }
     driveFiles=(r.value||[]).filter(f=>f.name.endsWith('.enc'));
     renderDiaryList();
   }catch(e){toast('❌ '+e.message);console.error(e);}
-  finally{hideLoading();}
+  finally{if(!silent)hideLoading();}
 }
 async function refreshDiaryList(){await loadDiaryList();toast('🔄 Refreshed');}
 
@@ -5412,7 +5476,7 @@ function fabAction(){
   if(currentPanel==='expenses'){
     editingExpenseId=null;
     document.getElementById('exp-modal-title').textContent='💰 Add Expense';
-    ['exp-category','exp-account','exp-remark','exp-notes'].forEach(id=>document.getElementById(id).value='');
+    ['exp-category','exp-subcategory','exp-account','exp-remark','exp-notes'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('exp-amount').value='';
     document.getElementById('exp-date').value=todayStr();
     document.getElementById('exp-mode').value='';
@@ -6089,7 +6153,7 @@ function renderExpenses(){
   document.getElementById('exp-list').innerHTML=exps.length?exps.map(e=>`
     <div class="card" id="exp-${e.id}" ondblclick="editExpense('${e.id}')" style="display:flex;align-items:center;gap:12px;cursor:pointer">
       <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:14px">${escH(e.category||'—')}</div>
+        <div style="font-weight:600;font-size:14px">${escH(e.category||'—')}${e.subcategory?' <span style="font-weight:500;color:var(--text-muted)">› '+escH(e.subcategory)+'</span>':''}</div>
         <div style="font-size:11px;color:var(--text-muted)">${fmtDate(e.date)} · ${escH(e.mode||'')}${e.account?' · '+escH(e.account):''}</div>
         ${e.note?`<div style="font-size:12px;color:var(--text-mid);margin-top:2px">${escH(e.note)}</div>`:''}
         ${e.notes?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px;white-space:pre-line;max-height:40px;overflow:hidden;text-overflow:ellipsis">📝 ${escH(e.notes)}</div>`:''}
@@ -6112,8 +6176,8 @@ function renderExpenses(){
 function exportExpenseCSV(){
   const exps=[...(storage.expenses||[])].sort((a,b)=>b.date.localeCompare(a.date));
   if(!exps.length)return toast('No expenses to export');
-  const rows=[['Date','Category','Amount','Mode','Account','Remark','Notes']];
-  exps.forEach(e=>rows.push([e.date,e.category||'',e.amount,e.mode||'',e.account||'',e.note||'',e.notes||'']));
+  const rows=[['Date','Category','Sub-category','Amount','Mode','Account','Remark','Notes']];
+  exps.forEach(e=>rows.push([e.date,e.category||'',e.subcategory||'',e.amount,e.mode||'',e.account||'',e.note||'',e.notes||'']));
   const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   const a=document.createElement('a');a.href=url;a.download=(currentDiaryName||'diary')+'_expenses.csv';a.click();URL.revokeObjectURL(url);toast('⬇ CSV exported');
@@ -6307,10 +6371,12 @@ function renderReport(){
   // populate account/category dropdowns from managed lists + observed values
   const sl=storage.expLists||{};
   const allCats=[...new Set([...(sl.cats||[]),...exps.map(e=>e.category).filter(Boolean)])];
+  const allSubcats=[...new Set([...(sl.subcats||[]),...exps.map(e=>e.subcategory).filter(Boolean)])];
   const allAccs=[...new Set([...(sl.accs||[]),...exps.map(e=>e.account).filter(Boolean)])];
-  const accSel=document.getElementById('rep-account'),catSel=document.getElementById('rep-category');
+  const accSel=document.getElementById('rep-account'),catSel=document.getElementById('rep-category'),subcatSel=document.getElementById('rep-subcategory');
   if(accSel){const cur=accSel.value;accSel.innerHTML='<option value="">All accounts</option>'+allAccs.map(a=>`<option value="${escH(a)}">${escH(a)}</option>`).join('');accSel.value=cur;}
   if(catSel){const cur=catSel.value;catSel.innerHTML='<option value="">All categories</option>'+allCats.map(c=>`<option value="${escH(c)}">${escH(c)}</option>`).join('');catSel.value=cur;}
+  if(subcatSel){const cur=subcatSel.value;subcatSel.innerHTML='<option value="">All sub-categories</option>'+allSubcats.map(c=>`<option value="${escH(c)}">${escH(c)}</option>`).join('');subcatSel.value=cur;}
 
   // Determine date range from selected mode
   let repFrom,repTo,rangeLabel;
@@ -6326,10 +6392,11 @@ function renderReport(){
     repTo=`${selYear}-${selMonth}-${String(daysInMonth).padStart(2,'0')}`;
     rangeLabel=new Date(selYear,selMonth-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
   }
-  const accF=accSel?.value||'', catF=catSel?.value||'';
+  const accF=accSel?.value||'', catF=catSel?.value||'', subcatF=subcatSel?.value||'';
   let filtered=exps.filter(e=>e.date&&(!repFrom||e.date>=repFrom)&&(!repTo||e.date<=repTo));
   if(accF)filtered=filtered.filter(e=>(e.account||'')===accF);
   if(catF)filtered=filtered.filter(e=>(e.category||'')===catF);
+  if(subcatF)filtered=filtered.filter(e=>(e.subcategory||'')===subcatF);
 
   const spent=filtered.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+Math.abs(parseFloat(e.amount)||0),0);
   const income=filtered.filter(e=>parseFloat(e.amount)>0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
@@ -6343,12 +6410,14 @@ function renderReport(){
 
   // Group-by chart (spending only) — grouped by whichever field the user picked
   const groupBy=document.getElementById('rep-groupby')?.value||'category';
-  const GROUP_LABELS={category:'Category',account:'Account',mode:'Payment Mode',date:'Date',month:'Month'};
+  const GROUP_LABELS={category:'Category',category_subcategory:'Category → Sub-category',subcategory:'Sub-category',account:'Account',mode:'Payment Mode',date:'Date',month:'Month'};
   function groupKeyFor(e){
     if(groupBy==='account')return e.account||'—';
     if(groupBy==='mode')return e.mode||'—';
     if(groupBy==='date')return e.date;
     if(groupBy==='month')return e.date?e.date.slice(0,7):'—';
+    if(groupBy==='subcategory')return e.subcategory||'—';
+    if(groupBy==='category_subcategory')return (e.category||'Other')+(e.subcategory?' › '+e.subcategory:'');
     return e.category||'Other';
   }
   function groupKeyDisplay(k){
@@ -6409,6 +6478,7 @@ function renderReport(){
       <thead><tr style="border-bottom:2px solid var(--border)">
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Date</th>
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Category</th>
+        <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Sub-category</th>
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Account</th>
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Mode</th>
         <th style="text-align:left;padding:6px 4px;color:var(--text-muted)">Note</th>
@@ -6417,6 +6487,7 @@ function renderReport(){
       <tbody>${sortedTxns.map(e=>{const amt=parseFloat(e.amount)||0;return`<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:6px 4px;white-space:nowrap;font-family:monospace">${fmtDate(e.date)}</td>
         <td style="padding:6px 4px">${escH(e.category||'—')}</td>
+        <td style="padding:6px 4px">${escH(e.subcategory||'—')}</td>
         <td style="padding:6px 4px">${escH(e.account||'—')}</td>
         <td style="padding:6px 4px">${escH(e.mode||'—')}</td>
         <td style="padding:6px 4px;max-width:220px;white-space:normal;word-break:break-word;color:var(--text-mid)">${escH(e.note||'—')}</td>
@@ -6434,8 +6505,8 @@ function renderReport(){
 function exportReportCSV(){
   const exps=window._reportFiltered||[];
   if(!exps.length)return toast('No data in this report to export');
-  const rows=[['Date','Category','Amount','Mode','Account','Note']];
-  [...exps].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>rows.push([e.date,e.category||'',e.amount,e.mode||'',e.account||'',e.note||'']));
+  const rows=[['Date','Category','Sub-category','Amount','Mode','Account','Note']];
+  [...exps].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>rows.push([e.date,e.category||'',e.subcategory||'',e.amount,e.mode||'',e.account||'',e.note||'']));
   const spent=exps.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+Math.abs(parseFloat(e.amount)||0),0);
   const income=exps.filter(e=>parseFloat(e.amount)>0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   rows.push([]);
@@ -6458,7 +6529,7 @@ function exportReportExcel(){
 
   // Sheet 1: individual transaction lines
   const txnRows=[...exps].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>({
-    Date:e.date, Category:e.category||'', Account:e.account||'', Mode:e.mode||'',
+    Date:e.date, Category:e.category||'', 'Sub-category':e.subcategory||'', Account:e.account||'', Mode:e.mode||'',
     Note:e.note||'', Amount:parseFloat(e.amount)||0
   }));
   const wsTxns=XLSX.utils.json_to_sheet(txnRows);
@@ -6524,8 +6595,8 @@ function exportReportPDF(){
       ${groupRows.map(([k,v])=>`<tr><td>${escH(k)}</td><td class="amt">₹${v.toFixed(0)}</td></tr>`).join('')}
     </tbody></table>
     <h2>Transaction Detail</h2>
-    <table><thead><tr><th>Date</th><th>Category</th><th>Account</th><th>Mode</th><th>Note</th><th class="amt">Amount</th></tr></thead><tbody>
-      ${sorted.map(e=>`<tr><td>${escH(fmtDate(e.date))}</td><td>${escH(e.category||'—')}</td><td>${escH(e.account||'—')}</td><td>${escH(e.mode||'—')}</td><td>${escH(e.note||'')}</td><td class="amt">₹${Math.abs(parseFloat(e.amount)||0).toFixed(0)}</td></tr>`).join('')}
+    <table><thead><tr><th>Date</th><th>Category</th><th>Sub-category</th><th>Account</th><th>Mode</th><th>Note</th><th class="amt">Amount</th></tr></thead><tbody>
+      ${sorted.map(e=>`<tr><td>${escH(fmtDate(e.date))}</td><td>${escH(e.category||'—')}</td><td>${escH(e.subcategory||'—')}</td><td>${escH(e.account||'—')}</td><td>${escH(e.mode||'—')}</td><td>${escH(e.note||'')}</td><td class="amt">₹${Math.abs(parseFloat(e.amount)||0).toFixed(0)}</td></tr>`).join('')}
     </tbody></table>
     <script>window.onload=()=>{window.print();};<\/script>
   </body></html>`);
@@ -6566,6 +6637,7 @@ function editExpense(id){
   document.getElementById('exp-date').value=e.date;
   document.getElementById('exp-amount').value=Math.abs(parseFloat(e.amount));
   document.getElementById('exp-category').value=e.category||'';
+  document.getElementById('exp-subcategory').value=e.subcategory||'';
   document.getElementById('exp-mode').value=e.mode||'';
   document.getElementById('exp-account').value=e.account||'';
   document.getElementById('exp-remark').value=e.note||'';
@@ -6578,6 +6650,7 @@ async function deleteExpense(id){if(!(await showConfirm('Delete?')))return;stora
 function submitExpense(){
   const date=document.getElementById('exp-date').value;
   const cat=document.getElementById('exp-category').value.trim();
+  const subcat=document.getElementById('exp-subcategory').value.trim();
   const rawAmt=parseFloat(document.getElementById('exp-amount').value);
   const mode=document.getElementById('exp-mode').value.trim();
   const acc=document.getElementById('exp-account').value.trim();
@@ -6595,13 +6668,15 @@ function submitExpense(){
     amt=rawAmt<0?Math.abs(rawAmt):-Math.abs(rawAmt);
   }
   // auto-save new category/mode/account to managed lists
-  const sl=storage.expLists=storage.expLists||{cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]};
+  const sl=storage.expLists=storage.expLists||{cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[],subcats:[]};
+  if(!sl.subcats)sl.subcats=[];
   if(cat&&!sl.cats.includes(cat))sl.cats.push(cat);
+  if(subcat&&!sl.subcats.includes(subcat))sl.subcats.push(subcat);
   if(mode&&!sl.modes.includes(mode))sl.modes.push(mode);
   if(acc&&!sl.accs.includes(acc))sl.accs.push(acc);
   const attachments=getAttachStage('expense');
-  if(editingExpenseId){const e=storage.expenses.find(x=>x.id===editingExpenseId);if(e)Object.assign(e,{date,category:cat,amount:amt,mode,account:acc,note,notes,attachments});}
-  else storage.expenses.push({id:uuid(),date,category:cat,amount:amt,mode,account:acc,note,notes,attachments});
+  if(editingExpenseId){const e=storage.expenses.find(x=>x.id===editingExpenseId);if(e)Object.assign(e,{date,category:cat,subcategory:subcat,amount:amt,mode,account:acc,note,notes,attachments});}
+  else storage.expenses.push({id:uuid(),date,category:cat,subcategory:subcat,amount:amt,mode,account:acc,note,notes,attachments});
   closeModal('modal-expense');renderExpenses();if(currentExpTab==='report')renderReport();saveToDrive();
 }
 
@@ -6611,7 +6686,8 @@ let currentExpType='expense'; // 'expense' | 'income'
 let currentManageKey=null;   // 'cat' | 'mode' | 'acc'
 
 function getExpLists(){
-  if(!storage.expLists)storage.expLists={cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[]};
+  if(!storage.expLists)storage.expLists={cats:['Food','Transport','Bills','Shopping','Health','Entertainment','Other'],modes:['Cash','UPI','Card','Net Banking'],accs:[],subcats:[]};
+  if(!storage.expLists.subcats)storage.expLists.subcats=[];
   return storage.expLists;
 }
 
@@ -6636,27 +6712,30 @@ function setExpType(type){
 function renderExpChips(){
   const sl=getExpLists();
   const selCat=document.getElementById('exp-category')?.value||'';
+  const selSubcat=document.getElementById('exp-subcategory')?.value||'';
   const selMode=document.getElementById('exp-mode')?.value||'';
   const selAcc=document.getElementById('exp-account')?.value||'';
 
   const catEl=document.getElementById('exp-cat-chips');
+  const subcatEl=document.getElementById('exp-subcat-chips');
   const modeEl=document.getElementById('exp-mode-chips');
   const accEl=document.getElementById('exp-acc-chips');
 
   if(catEl) catEl.innerHTML=sl.cats.map(c=>`<div onclick="pickChip('cat','${escH(c)}')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid ${c===selCat?'var(--primary)':'var(--border)'};background:${c===selCat?'var(--primary-light)':'var(--surface2)'};color:${c===selCat?'var(--primary)':'var(--text-mid)'};white-space:nowrap;flex-shrink:0">${escH(c)}</div>`).join('');
+  if(subcatEl) subcatEl.innerHTML=(sl.subcats||[]).length?sl.subcats.map(c=>`<div onclick="pickChip('subcat','${escH(c)}')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid ${c===selSubcat?'var(--primary)':'var(--border)'};background:${c===selSubcat?'var(--primary-light)':'var(--surface2)'};color:${c===selSubcat?'var(--primary)':'var(--text-mid)'};white-space:nowrap;flex-shrink:0">${escH(c)}</div>`).join(''):'<span style="font-size:12px;color:var(--text-muted)">No sub-categories yet — type one above or add via Manage</span>';
   if(modeEl) modeEl.innerHTML=sl.modes.map(m=>`<div onclick="pickChip('mode','${escH(m)}')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid ${m===selMode?'var(--primary)':'var(--border)'};background:${m===selMode?'var(--primary-light)':'var(--surface2)'};color:${m===selMode?'var(--primary)':'var(--text-mid)'};white-space:nowrap;flex-shrink:0">${escH(m)}</div>`).join('');
   if(accEl) accEl.innerHTML=sl.accs.length?sl.accs.map(a=>`<div onclick="pickChip('acc','${escH(a)}')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid ${a===selAcc?'var(--primary)':'var(--border)'};background:${a===selAcc?'var(--primary-light)':'var(--surface2)'};color:${a===selAcc?'var(--primary)':'var(--text-mid)'};white-space:nowrap;flex-shrink:0">${escH(a)}</div>`).join(''):'<span style="font-size:12px;color:var(--text-muted)">No accounts yet — add via Manage</span>';
 }
 
-// Live autocomplete suggestions for expense category/mode/account
+// Live autocomplete suggestions for expense category/sub-category/mode/account
 function showExpSuggestions(key){
-  const fieldMap={cat:'exp-category',mode:'exp-mode',acc:'exp-account'};
+  const fieldMap={cat:'exp-category',subcat:'exp-subcategory',mode:'exp-mode',acc:'exp-account'};
   const input=document.getElementById(fieldMap[key]);
   const dropdown=document.getElementById('exp-suggest-'+key);
   if(!input||!dropdown)return;
   const q=(input.value||'').toLowerCase().trim();
   const sl=getExpLists();
-  const listMap={cat:sl.cats,mode:sl.modes,acc:sl.accs};
+  const listMap={cat:sl.cats,subcat:sl.subcats,mode:sl.modes,acc:sl.accs};
   const items=listMap[key]||[];
   // Filter: show all if empty query, otherwise match
   const matches=q?items.filter(v=>v.toLowerCase().includes(q)):items;
@@ -6672,7 +6751,7 @@ function showExpSuggestions(key){
   dropdown.classList.add('open');
 }
 function pickExpSuggestion(key,val){
-  const fieldMap={cat:'exp-category',mode:'exp-mode',acc:'exp-account'};
+  const fieldMap={cat:'exp-category',subcat:'exp-subcategory',mode:'exp-mode',acc:'exp-account'};
   const input=document.getElementById(fieldMap[key]);
   if(input)input.value=val;
   hideExpSuggestions(key);
@@ -6684,8 +6763,8 @@ function hideExpSuggestions(key){
 }
 // Close suggestions when clicking outside
 document.addEventListener('click',function(e){
-  ['cat','mode','acc'].forEach(key=>{
-    const fieldMap={cat:'exp-category',mode:'exp-mode',acc:'exp-account'};
+  ['cat','subcat','mode','acc'].forEach(key=>{
+    const fieldMap={cat:'exp-category',subcat:'exp-subcategory',mode:'exp-mode',acc:'exp-account'};
     const input=document.getElementById(fieldMap[key]);
     const dropdown=document.getElementById('exp-suggest-'+key);
     if(dropdown&&input&&!input.contains(e.target)&&!dropdown.contains(e.target)){
@@ -6695,7 +6774,7 @@ document.addEventListener('click',function(e){
 });
 
 function pickChip(key,val){
-  const fieldMap={cat:'exp-category',mode:'exp-mode',acc:'exp-account'};
+  const fieldMap={cat:'exp-category',subcat:'exp-subcategory',mode:'exp-mode',acc:'exp-account'};
   const el=document.getElementById(fieldMap[key]);
   if(el){
     // toggle off if already selected
@@ -6707,7 +6786,7 @@ function pickChip(key,val){
 
 function openManage(key){
   currentManageKey=key;
-  const labels={cat:'Categories',mode:'Payment Modes',acc:'Accounts'};
+  const labels={cat:'Categories',subcat:'Sub-categories',mode:'Payment Modes',acc:'Accounts'};
   document.getElementById('manage-title').textContent='✏️ Manage '+labels[key];
   document.getElementById('manage-new-input').value='';
   renderManageList();
@@ -6716,7 +6795,7 @@ function openManage(key){
 
 function renderManageList(){
   const sl=getExpLists();
-  const listMap={cat:sl.cats,mode:sl.modes,acc:sl.accs};
+  const listMap={cat:sl.cats,subcat:sl.subcats,mode:sl.modes,acc:sl.accs};
   const items=listMap[currentManageKey]||[];
   document.getElementById('manage-list').innerHTML=items.length
     ?items.map((item,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);"><span style="flex:1;font-size:14px;font-weight:600">${escH(item)}</span><button class="icon-btn" onclick="deleteManageItem(${i})">🗑</button></div>`).join('')
@@ -6727,7 +6806,7 @@ function addManageItem(){
   const val=document.getElementById('manage-new-input').value.trim();
   if(!val)return;
   const sl=getExpLists();
-  const listMap={cat:sl.cats,mode:sl.modes,acc:sl.accs};
+  const listMap={cat:sl.cats,subcat:sl.subcats,mode:sl.modes,acc:sl.accs};
   const arr=listMap[currentManageKey];
   if(arr.includes(val))return toast('Already exists');
   arr.push(val);
@@ -6739,7 +6818,7 @@ function addManageItem(){
 
 function deleteManageItem(i){
   const sl=getExpLists();
-  const listMap={cat:sl.cats,mode:sl.modes,acc:sl.accs};
+  const listMap={cat:sl.cats,subcat:sl.subcats,mode:sl.modes,acc:sl.accs};
   listMap[currentManageKey].splice(i,1);
   renderManageList();
   renderExpChips();
@@ -6838,10 +6917,16 @@ const DEFAULT_DOC_FIELDS=[
   {id:'health',name:'Health Card',icon:'🩺'},{id:'vehicle',name:'Vehicle RC',icon:'🚘'},{id:'property',name:'Property Papers',icon:'🏠'}
 ];
 let currentDocFolderId=null, currentDocFieldId=null;
+let docFieldsCollapsed=new Set(); // field ids currently collapsed (per session, not persisted)
 
 function ensureDocDefaults(){
   if(!storage.docFields||!storage.docFields.length)storage.docFields=DEFAULT_DOC_FIELDS.map(f=>({...f}));
+  // Repair any corrupted entries missing a valid id (e.g. from an earlier bug) so they
+  // can be matched, edited, and deleted correctly instead of silently surviving deletes.
+  let repaired=false;
+  storage.docFields.forEach(f=>{ if(!f.id){f.id=uuid();repaired=true;} });
   if(!storage.docFolders)storage.docFolders=[];
+  if(repaired&&typeof saveToDrive==='function')saveToDrive();
 }
 
 // ── Folder list (top-level view) ──
@@ -6887,6 +6972,7 @@ function submitNewDocFolder(){
 async function deleteDocFolder(id){
   if(!(await showConfirm('Delete this folder and everything inside it?')))return;
   storage.docFolders=(storage.docFolders||[]).filter(x=>x.id!==id);
+  storage.todos=(storage.todos||[]).filter(t=>!(t.docLink&&t.docLink.startsWith(id+'::')));
   if(currentDocFolderId===id)currentDocFolderId=null;
   renderDocuments();saveToDrive();
 }
@@ -6900,27 +6986,33 @@ function renderDocFolderDetail(){
   if(!folder){backToDocFolders();return;}
   document.getElementById('doc-folder-title').textContent='📁 '+folder.name;
   const fields=storage.docFields||[];
+  const toggleBtn=document.getElementById('doc-collapse-all-btn');
+  if(toggleBtn)toggleBtn.style.display=fields.length?'inline-flex':'none';
   document.getElementById('doc-folder-fields-list').innerHTML=fields.length?fields.map(field=>{
     const d=(folder.docs||{})[field.id];
     const hasFile=d&&d.attachments&&d.attachments.length;
     const expired=d&&d.expiry&&d.expiry<todayStr();
+    const collapsed=docFieldsCollapsed.has(field.id);
     return `
     <div class="card" style="padding:12px">
       <div style="display:flex;align-items:center;gap:10px">
+        <span class="icon-btn" style="flex-shrink:0" onclick="toggleDocFieldCollapse('${field.id}')" title="${collapsed?'Expand':'Collapse'}">${collapsed?'▸':'▾'}</span>
         <div style="font-size:18px;flex-shrink:0">${field.icon||'📁'}</div>
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px">${escH(field.name)}</div>
+          ${collapsed?`<div style="font-size:11.5px;color:${hasFile?'var(--text-muted)':'var(--text-muted)'}">${hasFile?'✅ Added':'— Not added'}${d&&d.expiry?(expired?' · ⚠️ Expired':' · 📅 '+fmtDate(d.expiry)):''}</div>`:`
           ${d&&d.number?`<div style="font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">${escH(d.number)}</div>`:''}
-          ${d&&d.expiry?`<div style="font-size:12px;color:${expired?'var(--danger)':'var(--text-muted)'}">${expired?'⚠️ Expired ':'📅 Expires '}${fmtDate(d.expiry)}</div>`:''}
+          ${d&&d.expiry?`<div style="font-size:12px;color:${expired?'var(--danger)':'var(--text-muted)'}">${expired?'⚠️ Expired ':'📅 Expires '}${fmtDate(d.expiry)}${d.reminderDays?` · 🔔 ${d.reminderDays}d before`:''}</div>`:''}
           ${d&&d.notes?`<div style="font-size:12px;color:var(--text-mid);margin-top:2px">${escH(d.notes)}</div>`:''}
           ${!hasFile?'<div style="font-size:11px;color:var(--text-muted);margin-top:2px">No file attached yet</div>':''}
+          `}
         </div>
         <div style="display:flex;gap:4px;flex-shrink:0">
           <button class="icon-btn edit" onclick="openDocFieldModal('${field.id}')" title="${hasFile?'Edit':'Add'}">${hasFile?'✏️':'＋'}</button>
           ${hasFile?`<button class="icon-btn" onclick="deleteDocEntry('${field.id}')" title="Remove">🗑</button>`:''}
         </div>
       </div>
-      ${hasFile?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${d.attachments.map(a=>`
+      ${hasFile&&!collapsed?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${d.attachments.map(a=>`
         <div style="display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 8px;font-size:11.5px">
           <span style="cursor:pointer;font-weight:600" onclick="viewSavedDocAttachment('${folder.id}','${field.id}','${a.id}')">${a.mime==='application/pdf'?'📄':'🖼️'} ${escH(a.name)}</span>
           <span style="cursor:pointer" onclick="shareSavedDocAttachment('${folder.id}','${field.id}','${a.id}')" title="Share">📤</span>
@@ -6929,8 +7021,25 @@ function renderDocFolderDetail(){
     </div>`;
   }).join(''):`<div class="empty"><div class="empty-icon">🏷️</div><p>No fields yet</p><p style="font-size:12px;margin-top:6px;color:var(--text-muted)">Tap ⚙️ Manage Fields on the folders screen to add some</p></div>`;
 }
+function toggleDocFieldCollapse(fieldId){
+  if(docFieldsCollapsed.has(fieldId))docFieldsCollapsed.delete(fieldId);
+  else docFieldsCollapsed.add(fieldId);
+  renderDocFolderDetail();
+}
+function toggleAllDocFieldsCollapse(){
+  const fields=storage.docFields||[];
+  const allCollapsed=fields.length&&fields.every(f=>docFieldsCollapsed.has(f.id));
+  if(allCollapsed)docFieldsCollapsed.clear();
+  else fields.forEach(f=>docFieldsCollapsed.add(f.id));
+  renderDocFolderDetail();
+}
 
 // ── Add/edit a single field's document within the open folder ──
+function onDocExpiryChange(){
+  const has=!!document.getElementById('doc-expiry').value;
+  document.getElementById('doc-reminder-wrap').style.display=has?'block':'none';
+  if(!has)document.getElementById('doc-reminder-days').value='';
+}
 function openDocFieldModal(fieldId){
   if(!currentDocFolderId)return;
   currentDocFieldId=fieldId;
@@ -6941,19 +7050,44 @@ function openDocFieldModal(fieldId){
   document.getElementById('doc-number').value=(d&&d.number)||'';
   document.getElementById('doc-expiry').value=(d&&d.expiry)||'';
   document.getElementById('doc-notes').value=(d&&d.notes)||'';
+  document.getElementById('doc-reminder-days').value=(d&&d.reminderDays)?String(d.reminderDays):'';
+  onDocExpiryChange();
   initAttachUI('document',(d&&d.attachments)||[]);
   openModal('modal-document');
+}
+// Creates/updates/removes a linked task+reminder in Tasks so a document's expiry
+// reminder shows up wherever task reminders already surface (Tasks list, Dashboard,
+// Calendar, notifications) instead of building a second, parallel reminder system.
+function syncDocReminderTask(folder,fieldId,doc,fieldName){
+  storage.todos=storage.todos||[];
+  const linkId=folder.id+'::'+fieldId;
+  const existing=storage.todos.find(t=>t.docLink===linkId);
+  if(!doc.expiry||!doc.reminderDays){
+    if(existing)storage.todos=storage.todos.filter(t=>t.docLink!==linkId);
+    return;
+  }
+  const text='🪪 '+fieldName+' expiring — '+folder.name;
+  const reminders=[{id:(existing&&existing.reminders&&existing.reminders[0]&&existing.reminders[0].id)||uuid(),value:Number(doc.reminderDays),unit:'days'}];
+  if(existing){
+    existing.text=text;existing.due=doc.expiry;existing.reminders=reminders;
+  }else{
+    storage.todos.push({id:uuid(),text,due:doc.expiry,priority:'normal',tags:['document'],done:false,reminders,syncCal:false,docLink:linkId});
+  }
 }
 function submitDocument(){
   if(!currentDocFolderId||!currentDocFieldId)return;
   const folder=(storage.docFolders||[]).find(f=>f.id===currentDocFolderId);
   if(!folder)return;
+  const field=(storage.docFields||[]).find(f=>f.id===currentDocFieldId);
   const number=document.getElementById('doc-number').value.trim();
   const expiry=document.getElementById('doc-expiry').value||'';
   const notes=document.getElementById('doc-notes').value.trim();
+  const reminderDays=document.getElementById('doc-reminder-days').value||'';
   const attachments=getAttachStage('document');
   folder.docs=folder.docs||{};
-  folder.docs[currentDocFieldId]={number,expiry,notes,attachments};
+  const doc={number,expiry,notes,attachments,reminderDays};
+  folder.docs[currentDocFieldId]=doc;
+  syncDocReminderTask(folder,currentDocFieldId,doc,field?field.name:'Document');
   closeModal('modal-document');
   renderDocuments();
   saveToDrive();
@@ -6963,6 +7097,7 @@ async function deleteDocEntry(fieldId){
   if(!folder)return;
   if(!(await showConfirm('Remove this document?')))return;
   if(folder.docs)delete folder.docs[fieldId];
+  storage.todos=(storage.todos||[]).filter(t=>t.docLink!==(folder.id+'::'+fieldId));
   renderDocuments();saveToDrive();
 }
 function viewSavedDocAttachment(folderId,fieldId,attId){
@@ -6993,21 +7128,23 @@ function openManageFieldsModal(){
   renderDocFieldsManageList();
   document.getElementById('doc-new-field-name').value='';
   openModal('modal-doc-fields');
+  setTimeout(()=>document.getElementById('doc-new-field-name')?.focus(),250);
 }
 function renderDocFieldsManageList(){
   const fields=storage.docFields||[];
   document.getElementById('doc-fields-manage-list').innerHTML=fields.length?fields.map(f=>`
     <div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px">
-      <span style="flex:1;font-size:13.5px;font-weight:600">${f.icon||'📁'} ${escH(f.name)}</span>
+      <span style="flex:1;font-size:13.5px;font-weight:600">${f.icon||'📁'} ${escH(f.name)||'<span style="color:var(--text-muted);font-style:italic;font-weight:500">(unnamed field — tap 🗑 to remove)</span>'}</span>
       <span class="icon-btn" onclick="removeDocField('${f.id}')" title="Remove field">🗑</span>
     </div>`).join(''):'<div style="font-size:12.5px;color:var(--text-muted)">No fields yet — add one below.</div>';
 }
 function addDocField(){
   const input=document.getElementById('doc-new-field-name');
+  if(!input)return;
   const name=input.value.trim();
   if(!name)return toast('Enter a field name');
   ensureDocDefaults();
-  if(storage.docFields.some(f=>f.name.toLowerCase()===name.toLowerCase())){toast('That field already exists');return;}
+  if(storage.docFields.some(f=>(f&&f.name||'').toLowerCase()===name.toLowerCase())){toast('That field already exists');return;}
   storage.docFields.push({id:uuid(),name,icon:'📁'});
   input.value='';
   renderDocFieldsManageList();
@@ -8653,7 +8790,7 @@ function buildSearchResults(q,typeFilter){
   if(typeFilter==='all'||typeFilter==='expenses'){
     (storage.expenses||[]).forEach(e=>{
       if(!passesDateFilter(e.date||''))return;
-      const hay=[e.category||'',e.note||'',e.account||'',e.mode||'',String(e.amount||'')].join(' ');
+      const hay=[e.category||'',e.subcategory||'',e.note||'',e.account||'',e.mode||'',String(e.amount||'')].join(' ');
       if(matches(hay))
         results.push({type:'Expense',date:e.date||'',snippet:(e.category||'—')+' · ₹'+Math.abs(parseFloat(e.amount)||0).toFixed(0)+(e.note?' · '+e.note:''),rawText:hay,score:scoreResult(hay,q),action:()=>goToItem('expenses','exp-'+e.id,q)});
     });
