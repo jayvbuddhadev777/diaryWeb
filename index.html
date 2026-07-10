@@ -3139,15 +3139,28 @@ async function decryptData(ab, pw){
   const s  = b.slice(0, 16);
   const iv = b.slice(16, 28);
   const ct = b.slice(28);
-  // Try all known iteration counts so old .enc files still open
-  for(const iter of ITER_VARIANTS){
-    try{
-      const key = await deriveKey(pw, s, iter);
-      const dec = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
-      return new TextDecoder().decode(dec);
-    }catch(e){ /* try next */ }
+  // The overwhelming majority of files were saved with the current iteration count —
+  // try that alone first so the normal case pays for exactly one PBKDF2 derivation
+  // instead of racing/queuing every legacy variant behind it.
+  try{
+    const key = await deriveKey(pw, s, ITER_VARIANTS[0]);
+    const dec = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
+    return new TextDecoder().decode(dec);
+  }catch(e){ /* not the current format — fall through to older ones below */ }
+  // Older file (or wrong password). Try the remaining known iteration counts
+  // concurrently rather than one at a time — these are independent attempts, so
+  // running them in parallel is significantly faster than paying for every wrong
+  // guess in sequence before reaching the right one. Same iteration counts, same
+  // algorithm — this only changes execution order, not security.
+  const attempts = ITER_VARIANTS.slice(1).map(iter =>
+    deriveKey(pw, s, iter).then(key => crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct))
+  );
+  try{
+    const dec = await Promise.any(attempts);
+    return new TextDecoder().decode(dec);
+  }catch(e){
+    throw new Error('Decryption failed — wrong password or unsupported format');
   }
-  throw new Error('Decryption failed — wrong password or unsupported format');
 }
 
 // ── .dexport IMPORT (Fernet-format export from other Secure Diary builds) ──
@@ -3584,9 +3597,7 @@ async function submitRecoveryKey(){
     let ab;
     if(recoveryContext==='drive'){
       if(!selectedDriveFile)throw new Error('No diary selected');
-      const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+selectedDriveFile.id+'/content',{headers:{Authorization:'Bearer '+accessToken}});
-      if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
-      ab=await r.arrayBuffer();
+      ab=await fetchDriveFileContent(selectedDriveFile.id);
     }else{
       if(!localEncFile)throw new Error('No file selected');
       ab=await localEncFile.arrayBuffer();
@@ -4171,6 +4182,32 @@ async function ensureFreshToken(){
   }catch(e){/* MSAL will throw if interactive login needed — caller handles errors */}
 }
 
+// Downloads the encrypted diary file. Refreshes the access token upfront (so we don't waste
+// a whole round-trip on a request that's doomed to 401 with a stale token), retries once if
+// the server still rejects it, and times out with a clear error instead of hanging forever
+// if the connection is dead — all of which previously could make "opening a diary" look like
+// it was stuck forever with no feedback.
+async function fetchDriveFileContent(fileId){
+  await ensureFreshToken();
+  const doFetch=async()=>{
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),30000);
+    try{
+      return await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+fileId+'/content',{
+        headers:{Authorization:'Bearer '+accessToken},
+        signal:controller.signal
+      });
+    }catch(e){
+      if(e.name==='AbortError')throw new Error('Timed out — check your connection and try again');
+      throw e;
+    }finally{clearTimeout(timeout);}
+  };
+  let r=await doFetch();
+  if(r.status===401){ await ensureFreshToken(); r=await doFetch(); }
+  if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
+  return r.arrayBuffer();
+}
+
 // The AppFolder ("approot") id never changes for a given Microsoft account, but fetching it
 // is a full Graph round-trip that was happening on every single load. Cache it locally so
 // most loads skip straight to listing files — this is the main "unlock/load feels slow" fix.
@@ -4224,12 +4261,11 @@ function openSelected(){if(!selectedDriveFile)return toast('Select a diary first
 
 async function submitLogin(){
   const pw=document.getElementById('login-pw').value;if(!pw)return;
-  showLoading('Decrypting… (may take a moment)');
+  showLoading('Downloading…');
   try{
-    const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+selectedDriveFile.id+'/content',{headers:{Authorization:'Bearer '+accessToken}});
-    if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
-    const raw=await r.arrayBuffer();
+    const raw=await fetchDriveFileContent(selectedDriveFile.id);
     const {mainAB,recoveryAB}=unpackContainer(raw);
+    showLoading('Decrypting…');
     let json;
     try{ json=await decryptData(mainAB,pw); }
     catch(decErr){ hideLoading();document.getElementById('login-error').style.display='block';document.getElementById('login-pw').select();return; }
@@ -5282,12 +5318,11 @@ function startQuickPinUnlock(){
 }
 // Shared by the PIN unlock path — fetches + decrypts using a password recovered from the PIN
 async function unlockWithRecoveredPassword(pw){
-  showLoading('Unlocking…');
+  showLoading('Downloading…');
   try{
-    const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+selectedDriveFile.id+'/content',{headers:{Authorization:'Bearer '+accessToken}});
-    if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
-    const raw=await r.arrayBuffer();
+    const raw=await fetchDriveFileContent(selectedDriveFile.id);
     const {mainAB,recoveryAB}=unpackContainer(raw);
+    showLoading('Decrypting…');
     const json=await decryptData(mainAB,pw);
     storage=JSON.parse(json);
     normalizeStorage();
