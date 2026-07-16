@@ -4421,20 +4421,19 @@ async function uploadLargeFileToDrive(name,ab,existingId){
     });
     if(r.status===202){offset=end;continue;} // more chunks expected
     if(r.status===200||r.status===201){lastRes=await r.json();break;} // upload complete
-    // 409 during chunk upload — session is stale, need to restart
+    // 409 during a chunk PUT means someone else (another device/session) saved a
+    // newer version of this file WHILE we were mid-upload. This is exactly the
+    // moment data loss must NOT happen — deleting the existing remote item here
+    // would blow away whatever the other device just saved. So: cancel this
+    // session and surface a distinct, catchable conflict error. The caller
+    // (saveToDrive) handles it by saving our changes as a separate conflict
+    // copy, same as the pre-upload conflict check does — never by deleting or
+    // overwriting the existing file.
     if(r.status===409){
-      // Cancel this session and fall back to deleting + re-uploading
       await fetch(uploadUrl,{method:'DELETE'}).catch(()=>{});
-      // Retry entire upload by deleting and re-uploading as new
-      if(existingId){
-        // Delete the existing file and upload fresh
-        await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+existingId,{
-          method:'DELETE',headers:{Authorization:'Bearer '+accessToken}
-        }).catch(()=>{});
-        // Upload as new file via simple or session
-        return await uploadLargeFileAsNew(name,ab);
-      }
-      throw new Error('Upload conflict (409) — please try saving again');
+      const err=new Error('Upload conflict — another device saved changes during upload');
+      err.isUploadConflict=true;
+      throw err;
     }
     // Other error
     const errBody=await r.text().catch(()=>'');
@@ -4479,14 +4478,35 @@ async function getRemoteItemMeta(id){
   return odReq('https://graph.microsoft.com/v1.0/me/drive/items/'+id+'?$select=id,lastModifiedDateTime');
 }
 
+// Shared "don't clobber someone else's save" path: uploads our current changes as a
+// brand-new file (never deletes or overwrites the existing one) whenever we detect
+// another device/session has saved a newer version — whether that's discovered before
+// we start uploading, or mid-upload via a 409. This is the only safe response to a
+// conflict: both versions end up preserved in OneDrive, nothing is ever silently lost.
+async function saveAsConflictCopy(ab){
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  const conflictName=currentDiaryName+' (conflict copy '+stamp+')';
+  const cres=await uploadToDriveMeta(conflictName,ab,null);
+  currentDiaryName=conflictName;
+  driveFileId=cres.id;
+  lastKnownRemoteModified=cres.lastModifiedDateTime;
+  const dNameEl=document.getElementById('d-name');if(dNameEl)dNameEl.textContent=currentDiaryName;
+  setSyncBadge('ok','Saved ✓');
+  document.getElementById('save-status').textContent='⚠️ Conflict — saved as a new copy '+new Date().toLocaleTimeString();
+  toast('⚠️ Newer version found on OneDrive — your changes were saved as "'+conflictName+'" so nothing was lost');
+  dirty=false;markSynced();
+  if(currentPanel==='dashboard')checkBackupNudge();
+}
 async function saveToDrive(){
   if(!storage||!currentPassword)return;
-  // Prevent concurrent saves which cause ETag conflicts
+  // If a save is already in flight, chain onto it instead of firing a detached
+  // timer. Callers that need to know changes are actually safe on OneDrive before
+  // proceeding (most importantly: locking/signing out) must be able to await the
+  // real outcome — a stub that resolves immediately, while the real save is still
+  // running, is what let the lock flow wipe the session before the save landed.
   if(_savingNow){
-    // Queue a retry after current save finishes
-    clearTimeout(window._saveRetryTimer);
-    window._saveRetryTimer=setTimeout(()=>saveToDrive(),2000);
-    return;
+    window._pendingSaveChain=(window._pendingSaveChain||Promise.resolve()).then(()=>saveToDrive());
+    return window._pendingSaveChain;
   }
   _savingNow=true;
   if(isOfflineMode){
@@ -4513,18 +4533,7 @@ async function saveToDrive(){
       try{
         const meta=await getRemoteItemMeta(driveFileId);
         if(meta.lastModifiedDateTime&&meta.lastModifiedDateTime!==lastKnownRemoteModified){
-          const stamp=new Date().toISOString().replace(/[:.]/g,'-');
-          const conflictName=currentDiaryName+' (conflict copy '+stamp+')';
-          const cres=await uploadToDriveMeta(conflictName,ab,null);
-          currentDiaryName=conflictName;
-          driveFileId=cres.id;
-          lastKnownRemoteModified=cres.lastModifiedDateTime;
-          const dNameEl=document.getElementById('d-name');if(dNameEl)dNameEl.textContent=currentDiaryName;
-          setSyncBadge('ok','Saved ✓');
-          document.getElementById('save-status').textContent='⚠️ Conflict — saved as a new copy '+new Date().toLocaleTimeString();
-          toast('⚠️ Newer version found on OneDrive — your changes were saved as "'+conflictName+'" so nothing was lost');
-          dirty=false;markSynced();
-          if(currentPanel==='dashboard')checkBackupNudge();
+          await saveAsConflictCopy(ab);
           return;
         }
       }catch(metaErr){ /* metadata check failed (e.g. offline blip) — fall through and save normally */ }
@@ -4533,9 +4542,24 @@ async function saveToDrive(){
     try{
       res=await uploadToDriveMeta(currentDiaryName,ab,driveFileId);
     }catch(uploadErr){
+      // A conflict discovered mid-upload (another device saved while we were uploading)
+      // must never be resolved by deleting/overwriting the other device's data — save
+      // our changes as a separate conflict copy instead, same as the pre-upload check.
+      if(uploadErr&&uploadErr.isUploadConflict){
+        await saveAsConflictCopy(ab);
+        return;
+      }
       // Retry once after a brief delay (transient network/token errors)
       await new Promise(r=>setTimeout(r,1500));
-      res=await uploadToDriveMeta(currentDiaryName,ab,driveFileId);
+      try{
+        res=await uploadToDriveMeta(currentDiaryName,ab,driveFileId);
+      }catch(retryErr){
+        if(retryErr&&retryErr.isUploadConflict){
+          await saveAsConflictCopy(ab);
+          return;
+        }
+        throw retryErr;
+      }
     }
     driveFileId=res.id;
     lastKnownRemoteModified=res.lastModifiedDateTime;
@@ -4700,14 +4724,22 @@ function resetIdleLockTimer(){
 function autoLockOnIdle(){
   if(!storage||!currentPassword)return;
   if(document.getElementById('lock-screen')&&document.getElementById('lock-screen').style.display==='flex')return; // already locked
-  saveEntryInMemory();
-  saveToDrive().catch(()=>{}); // best-effort background save before locking
   const hasPin=!!getQuickPinRecord();
   const hasBio=!!getBiometricRecord();
   if(hasPin||hasBio){
-    showLockScreen(); // quick lock — same session, unlock with PIN/biometric
+    // Quick lock — same session, unlock with PIN/biometric. Still flush + save in the
+    // background so nothing pending is lost while locked, but no need to race a second
+    // save against anything since we don't wipe the session here.
+    saveEntryInMemory();
+    saveToDrive().catch(()=>{});
+    showLockScreen();
   }else{
-    performLockExit(); // no quick-unlock configured — fall back to full sign-out
+    // No quick-unlock configured — full sign-out. performLockExit() does its own
+    // flush + save and only clears the session once that save has actually settled,
+    // so don't fire a separate save here — a second in-flight save previously let
+    // the lock finish (and wipe storage/driveFileId) before the real save landed,
+    // silently dropping the last change.
+    performLockExit();
   }
 }
 ['mousemove','keydown','mousedown','touchstart','scroll','wheel'].forEach(evt=>
