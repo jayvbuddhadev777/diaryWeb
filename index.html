@@ -1485,6 +1485,11 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
               <input type="text" class="form-input" id="exp-cat-filter" placeholder="All" style="padding:8px 10px;font-size:13px;width:100%" oninput="debounceCall(this,renderExpenses)"/>
             </div>
           </div>
+          <div style="display:flex;gap:8px;padding-bottom:8px">
+            <div class="pill" onclick="initExpDates()" style="font-size:11px">📅 This Month</div>
+            <div class="pill" onclick="clearExpDateFilter()" style="font-size:11px">🗓 All Time</div>
+          </div>
+          <div id="exp-filter-banner" style="display:none;align-items:center;justify-content:space-between;gap:10px;background:var(--warn-bg,#fff8e1);color:var(--warn-text,#8a6d00);border:1px solid var(--warn-border,#f0d675);border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:8px"></div>
           <input type="file" id="expense-json-input" accept="application/json,.json" style="display:none" onchange="handleExpenseImportJSON(this)"/>
           <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:4px;flex-wrap:wrap">
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('expense-json-input').click()">⬆ Import JSON</button>
@@ -5548,7 +5553,7 @@ function navTo(p){
   if(p==='tasks')renderTasks();
   if(p==='lists')renderChecklists();
   if(p==='calendar')renderCalPanel();
-  if(p==='expenses'){initExpDates();renderExpenses();if(currentExpTab==='report')renderReport();}
+  if(p==='expenses'){renderExpenses();if(currentExpTab==='report')renderReport();}
   if(p==='contacts')renderContacts();
   if(p==='documents')renderDocuments();
   if(p==='notes')renderNotes();
@@ -6235,14 +6240,24 @@ function initExpDates(){
   const repFrom=document.getElementById('rep-from'),repTo=document.getElementById('rep-to');
   if(repFrom)repFrom.value=localISO(first);
   if(repTo)repTo.value=localISO(last);
+  renderExpenses();
+}
+// Clears the From/To date filter so the list shows every expense regardless of date.
+// Needed because leaving old expenses "filtered out with no indication" on a fresh
+// session/device looked exactly like the data had been deleted.
+function clearExpDateFilter(){
+  const fromEl=document.getElementById('exp-from'),toEl=document.getElementById('exp-to');
+  if(fromEl)fromEl.value='';
+  if(toEl)toEl.value='';
+  renderExpenses();
 }
 
 function renderExpenses(){
   const fromEl=document.getElementById('exp-from'),toEl=document.getElementById('exp-to');
-  // If dates are empty (shouldn't happen now but safety), set current month
-  if(fromEl&&toEl&&!fromEl.value&&!toEl.value){
-    initExpDates();
-  }
+  // NOTE: dates are intentionally left empty (= show all-time) unless the user
+  // explicitly picks a range or taps "This Month". Auto-defaulting this to the
+  // current month on every fresh session/device silently hid every older expense,
+  // which looked identical to the data having been wiped on sync.
   const from=fromEl?.value||'',to=toEl?.value||'';
   const catF=(document.getElementById('exp-cat-filter')?.value||'').toLowerCase().trim();
   let exps=storage.expenses||[];
@@ -6257,6 +6272,17 @@ function renderExpenses(){
   const income=exps.filter(e=>parseFloat(e.amount)>0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   const spend=exps.filter(e=>parseFloat(e.amount)<0).reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   document.getElementById('exp-summary').innerHTML=`<div class="stat-card"><div class="stat-num" style="color:${total>=0?'var(--accent)':'var(--danger)'}">₹${Math.abs(total).toFixed(0)}</div><div class="stat-label">Net</div></div><div class="stat-card"><div class="stat-num" style="color:var(--accent)">₹${income.toFixed(0)}</div><div class="stat-label">Income</div></div><div class="stat-card"><div class="stat-num" style="color:var(--danger)">₹${Math.abs(spend).toFixed(0)}</div><div class="stat-label">Spent</div></div><div class="stat-card"><div class="stat-num">${exps.length}</div><div class="stat-label">Entries</div></div>`;
+  const filterBannerEl=document.getElementById('exp-filter-banner');
+  if(filterBannerEl){
+    if(from||to){
+      const rangeTxt=(from?fmtDate(from):'the start')+' → '+(to?fmtDate(to):'now');
+      filterBannerEl.style.display='flex';
+      filterBannerEl.innerHTML=`<span>📅 Showing ${rangeTxt} only (${allExps.length} total in diary) — some expenses may be hidden by this filter</span><span onclick="clearExpDateFilter()" style="cursor:pointer;font-weight:700;color:var(--primary);white-space:nowrap">✕ Clear filter</span>`;
+    }else{
+      filterBannerEl.style.display='none';
+      filterBannerEl.innerHTML='';
+    }
+  }
   document.getElementById('exp-list').innerHTML=exps.length?exps.map(e=>`
     <div class="card" id="exp-${e.id}" ondblclick="editExpense('${e.id}')" style="display:flex;align-items:center;gap:12px;cursor:pointer">
       <div style="flex:1;min-width:0">
