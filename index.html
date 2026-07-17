@@ -4183,10 +4183,28 @@ async function showUserAndDiaries(){
 }
 
 // ── OneDrive REST ──
+// Wraps fetch() with a hard timeout via AbortController. Plain fetch() has NO
+// built-in timeout — on mobile, a backgrounded tab, a dropped/roaming cellular
+// connection, or a switch between wifi and data can leave a request neither
+// resolving nor rejecting. Every network call in the save path used to be a bare
+// fetch(), so a single stalled request left saveToDrive's await stuck forever:
+// _savingNow never cleared, the "Saving…" badge never updated, and the entry
+// never actually reached OneDrive. Give every Graph request a ceiling so a dead
+// connection always surfaces as a catchable error instead of hanging silently.
+async function fetchWithTimeout(url,opts,ms){
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),ms||20000);
+  try{
+    return await fetch(url,{...(opts||{}),signal:controller.signal});
+  }catch(e){
+    if(e.name==='AbortError')throw new Error('Timed out — check your connection and try again');
+    throw e;
+  }finally{clearTimeout(timeout);}
+}
 async function odReq(url,method,body,ct){
   const h={Authorization:'Bearer '+accessToken};
   if(ct)h['Content-Type']=ct;
-  let r=await fetch(url,{method:method||'GET',headers:h,body});
+  let r=await fetchWithTimeout(url,{method:method||'GET',headers:h,body});
   // If token expired, try to refresh silently and retry once
   if(r.status===401&&msalApp){
     try{
@@ -4195,7 +4213,7 @@ async function odReq(url,method,body,ct){
         const tokenResp=await msalApp.acquireTokenSilent({scopes:OD_SCOPES,account:accounts[0]});
         accessToken=tokenResp.accessToken;
         h.Authorization='Bearer '+accessToken;
-        r=await fetch(url,{method:method||'GET',headers:h,body});
+        r=await fetchWithTimeout(url,{method:method||'GET',headers:h,body});
       }
     }catch(e){/* silent refresh failed — fall through to error */}
   }
@@ -4366,7 +4384,7 @@ async function simpleUploadToDrive(name,ab,existingId){
   const url=existingId
     ?'https://graph.microsoft.com/v1.0/me/drive/items/'+existingId+'/content'
     :'https://graph.microsoft.com/v1.0/me/drive/special/approot:/'+name+'.enc:/content';
-  const r=await fetch(url,{method:'PUT',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/octet-stream'},body:ab});
+  const r=await fetchWithTimeout(url,{method:'PUT',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/octet-stream'},body:ab},30000);
   if(!r.ok){
     const errText=await r.text().catch(()=>'');
     throw new Error(r.status+' '+r.statusText+(errText?' — '+errText.slice(0,150):''));
@@ -4385,11 +4403,11 @@ async function uploadLargeFileToDrive(name,ab,existingId){
   let uploadUrl;
   // Try to create session, retry once on conflict
   for(let attempt=0;attempt<2;attempt++){
-    const sRes=await fetch(sessionUrl,{
+    const sRes=await fetchWithTimeout(sessionUrl,{
       method:'POST',
       headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
       body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace','name':name+'.enc'}})
-    });
+    },20000);
     if(sRes.status===409){
       // ETag conflict — wait briefly and retry
       await new Promise(r=>setTimeout(r,1000));
@@ -4412,13 +4430,17 @@ async function uploadLargeFileToDrive(name,ab,existingId){
   while(offset<total){
     const end=Math.min(offset+chunkSize,total);
     const chunkBuf=ab.slice(offset,end);
-    const r=await fetch(uploadUrl,{
+    // Each chunk gets its own timeout, scaled a bit for its size, so a stalled
+    // upload (e.g. phone locks / connection drops mid-save) fails fast instead
+    // of leaving the whole save() hung indefinitely with the badge stuck on
+    // "Saving…" and the entry never actually landing on OneDrive.
+    const r=await fetchWithTimeout(uploadUrl,{
       method:'PUT',
       headers:{
         'Content-Range':`bytes ${offset}-${end-1}/${total}`
       },
       body:chunkBuf
-    });
+    },30000);
     if(r.status===202){offset=end;continue;} // more chunks expected
     if(r.status===200||r.status===201){lastRes=await r.json();break;} // upload complete
     // 409 during a chunk PUT means someone else (another device/session) saved a
@@ -4430,7 +4452,7 @@ async function uploadLargeFileToDrive(name,ab,existingId){
     // copy, same as the pre-upload conflict check does — never by deleting or
     // overwriting the existing file.
     if(r.status===409){
-      await fetch(uploadUrl,{method:'DELETE'}).catch(()=>{});
+      await fetchWithTimeout(uploadUrl,{method:'DELETE'},10000).catch(()=>{});
       const err=new Error('Upload conflict — another device saved changes during upload');
       err.isUploadConflict=true;
       throw err;
@@ -4446,11 +4468,11 @@ async function uploadLargeFileToDrive(name,ab,existingId){
 // Fallback: upload a large file as a brand new file (after delete)
 async function uploadLargeFileAsNew(name,ab){
   const sessionUrl=`https://graph.microsoft.com/v1.0/me/drive/special/approot:/${name}.enc:/createUploadSession`;
-  const sRes=await fetch(sessionUrl,{
+  const sRes=await fetchWithTimeout(sessionUrl,{
     method:'POST',
     headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
     body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace','name':name+'.enc'}})
-  });
+  },20000);
   if(!sRes.ok)throw new Error('Re-upload session failed: '+sRes.status);
   const session=await sRes.json();
   const uploadUrl=session.uploadUrl;
@@ -4459,11 +4481,11 @@ async function uploadLargeFileAsNew(name,ab){
   let offset=0, lastRes=null;
   while(offset<total){
     const end=Math.min(offset+chunkSize,total);
-    const r=await fetch(uploadUrl,{
+    const r=await fetchWithTimeout(uploadUrl,{
       method:'PUT',
       headers:{'Content-Range':`bytes ${offset}-${end-1}/${total}`},
       body:ab.slice(offset,end)
-    });
+    },30000);
     if(r.status===202){offset=end;continue;}
     if(r.status===200||r.status===201){lastRes=await r.json();break;}
     const errBody=await r.text().catch(()=>'');
@@ -4659,6 +4681,27 @@ function startAutoSyncLoop(){
   window._autoSyncInterval=setInterval(autoSyncTick,AUTO_SYNC_MS);
 }
 function stopAutoSyncLoop(){ clearInterval(window._autoSyncInterval); }
+
+// On mobile, backgrounding the tab (switching apps, locking the phone) can freeze
+// JS execution mid-request: setTimeout/setInterval are paused, and a fetch that was
+// already in flight can be left dangling by the OS. When the user comes back, the
+// UI may still be showing "Saving…" from a save that never actually completed and
+// never will on its own. Also, autoSaveTimer/autoSyncTick are timer-driven, so any
+// edits made right before backgrounding may still be sitting unsaved locally.
+// On resume: if a save looks stuck, don't wait it out — kick a fresh save so the
+// in-memory edits actually reach OneDrive instead of just showing a frozen badge.
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible')return;
+  if(!storage||!currentPassword)return;
+  if(_savingNow){
+    // A save was in flight when we backgrounded. fetchWithTimeout() will make the
+    // stalled request eventually error out and clear _savingNow on its own — but
+    // give it a moment first rather than firing a competing save immediately.
+    setTimeout(()=>{ if(dirty&&!_savingNow)saveEntryAndDrive(); },1500);
+    return;
+  }
+  if(dirty)saveEntryAndDrive();
+});
 async function autoSyncTick(){
   if(isOfflineMode||!driveFileId||!currentPassword)return;
   if(_savingNow)return; // don't pull while a save is in-flight
@@ -4677,7 +4720,7 @@ async function pullRemoteChanges(newModified){
   try{
     await ensureFreshToken();
     setSyncBadge('syncing','Syncing…');
-    const r=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+driveFileId+'/content',{headers:{Authorization:'Bearer '+accessToken}});
+    const r=await fetchWithTimeout('https://graph.microsoft.com/v1.0/me/drive/items/'+driveFileId+'/content',{headers:{Authorization:'Bearer '+accessToken}},30000);
     if(!r.ok)throw new Error('Drive error: '+r.status+' '+r.statusText);
     const raw=await r.arrayBuffer();
     const {mainAB}=unpackContainer(raw);
