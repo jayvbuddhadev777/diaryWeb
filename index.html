@@ -9,6 +9,8 @@
 <meta name="theme-color" content="#1a3a6b"/>
 <link rel="manifest" href="manifest.json"/>
 <title>🔐 Secure Diary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
 :root {
@@ -1990,7 +1992,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 </div>
 
 <!-- Add/Edit Task -->
-<div class="modal-overlay" id="modal-task">
+<div class="modal-overlay" id="modal-task" data-enter-submit="submitTask">
   <div class="modal">
     <div class="modal-handle"></div>
     <h2 id="task-modal-title">➕ Add Task</h2>
@@ -2062,7 +2064,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 </div>
 
 <!-- Add/Edit Expense -->
-<div class="modal-overlay" id="modal-expense">
+<div class="modal-overlay" id="modal-expense" data-enter-submit="submitExpense">
   <div class="modal">
     <div class="modal-handle"></div>
     <h2 id="exp-modal-title">💰 Add Expense</h2>
@@ -2179,7 +2181,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 </div>
 
 <!-- Add/Edit Contact -->
-<div class="modal-overlay" id="modal-contact">
+<div class="modal-overlay" id="modal-contact" data-enter-submit="submitContact">
   <div class="modal">
     <div class="modal-handle"></div>
     <h2 id="contact-modal-title">📇 Add Contact</h2>
@@ -2220,7 +2222,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 </div>
 
 <!-- Add/Edit Document -->
-<div class="modal-overlay" id="modal-document">
+<div class="modal-overlay" id="modal-document" data-enter-submit="submitDocument">
   <div class="modal">
     <div class="modal-handle"></div>
     <h2 id="document-modal-title">🪪 Add Document</h2>
@@ -2364,7 +2366,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 </div>
 
 <!-- Sticky Note -->
-<div class="modal-overlay" id="modal-note">
+<div class="modal-overlay" id="modal-note" data-enter-submit="submitNote">
   <div class="modal">
     <div class="modal-handle"></div>
     <h2 id="note-modal-title">📌 Add Sticky Note</h2>
@@ -2426,7 +2428,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 </div>
 
 <!-- New/Edit Checklist modal -->
-<div class="modal-overlay" id="modal-checklist">
+<div class="modal-overlay" id="modal-checklist" data-enter-submit="submitChecklistModal">
   <div class="modal">
     <div class="modal-handle"></div>
     <h2 id="cl-modal-title">📋 New Checklist</h2>
@@ -2594,7 +2596,7 @@ textarea.form-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 </div>
 
 <!-- Project (enhanced) -->
-<div class="modal-overlay" id="modal-project">
+<div class="modal-overlay" id="modal-project" data-enter-submit="submitProject">
   <div class="modal">
     <div class="modal-handle"></div>
     <h2 id="proj-modal-title">🗂 New Project</h2>
@@ -3065,8 +3067,8 @@ Web Version Diary !
 <div id="loading-overlay"><div class="spinner"></div><div class="loading-text" id="loading-msg">Loading…</div></div>
 <div id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.10.0/lib/msal-browser.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.10.0/lib/msal-browser.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 // ═══════════════════════════════════════
@@ -9345,6 +9347,22 @@ function openAbout(){openModal('modal-about');closeMoreMenu();}
 // ── keyboard / modal close ──
 function globalKey(e){if(document.getElementById('lock-screen')&&document.getElementById('lock-screen').style.display==='flex')return;if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();saveEntryAndDrive();}if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();navTo('search');setTimeout(()=>document.getElementById('panel-search-input')?.focus(),300);}}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));});
+// Enter-to-save inside Add/Edit modals: press Enter in any single-line field
+// (not a textarea, not a rich-text editor) to save the entry, just like tapping
+// the Save button — makes fast keyboard entry possible on every "add" tab.
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey)return;
+  const el=e.target;
+  if(!el||el.tagName!=='INPUT')return;
+  const skipTypes=['button','checkbox','radio','file','hidden','submit','reset','range','color'];
+  if(skipTypes.includes((el.type||'text').toLowerCase()))return;
+  const modal=el.closest('.modal-overlay.open');
+  if(!modal)return;
+  const fnName=modal.getAttribute('data-enter-submit');
+  if(!fnName||typeof window[fnName]!=='function')return;
+  e.preventDefault();
+  window[fnName]();
+});
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');}));
 
 // ── PASSWORD VISIBILITY TOGGLE ──
